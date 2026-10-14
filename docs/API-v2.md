@@ -15,8 +15,8 @@ deployment address. HTTP, query strings, fragments, embedded credentials,
 paths and malformed keys are rejected with errors that disclose neither value.
 API, streaming, balance, MACD and alert requests use the saved connection address
 and send only the inner token as Bearer authentication. The connection code is
-never a query parameter or authorization header. Updates use an encrypted saved
-connection's address without attaching dashboard credentials. Existing saved
+never a query parameter or authorization header. Updates download directly from
+public GitHub Releases without using saved server addresses or credentials. Existing saved
 connections retain their addresses and tokens; new raw-token-only entries require
 an encoded connection key. Encoding hides the address from public source/APKs,
 not from a person holding the key. The [private key formatter](../scripts/encode-connection-key.py)

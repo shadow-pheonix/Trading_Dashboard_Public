@@ -107,11 +107,11 @@ Install that APK directly on your Android phone. Each release is tagged
 `v0.1.<version code>` and includes the APK, checksum, signing-certificate details
 and build information. Actions artifacts provide a temporary secondary download;
 see [Actions storage](#actions-storage) for retention.
-The app automatically detects newer VPS-hosted releases on opening/foreground
+The app automatically detects newer public GitHub Releases on opening/foreground
 return and every minute while visible, retries failures, downloads the APK, and
 offers Install now or Later. Later reminds again after restarting. Settings includes
-update controls. Scheduling and three-version APK retention are documented in
-[the human-run update guide](docs/UPDATE.md#host-signed-apk-updates-on-the-vps).
+update controls. Downloads come directly from GitHub without dashboard or GitHub
+credentials; see [in-app updates](docs/UPDATE.md#in-app-updates-from-public-github-releases).
 
 Releases are created only after the permanent APK signature passes verification;
 PR/test APKs are never released. No additional GitHub secret is needed for publishing.

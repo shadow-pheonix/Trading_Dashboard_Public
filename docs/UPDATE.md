@@ -239,10 +239,25 @@ The new APK requires v2; after a backend rollback, older APKs remain usable and 
 new APK will show unavailable data until v2 is restored. Never clear app storage
 or revoke login keys to address a version mismatch.
 
-## Host signed APK updates on the VPS
+## In-app updates from public GitHub releases
 
-The public repository publishes signed APKs in GitHub Releases. Installed apps
-continue using their encrypted saved connection's HTTPS server, which serves APKs and a manifest at
+The app requests the public repository's `releases/latest/download/latest.json`
+and downloads the versioned APK from `releases/download/vVERSION/APK_NAME`.
+GitHub authentication, dashboard access keys and private server addresses are
+never used for update requests. Manifest redirects are limited to HTTPS on
+`github.com`, `release-assets.githubusercontent.com` and `objects.githubusercontent.com`,
+with a bounded number of hops. APKs still require the declared checksum, size,
+application ID, newer version code and the installed app's signing certificate.
+Automatic checks, retries, Later and Android install permission behavior remain
+as described below. Publishing a verified GitHub Release makes it available to
+the app without copying APKs to the VPS. Install the GitHub-downloading version
+once from its Release asset when upgrading an older VPS-downloading APK; saved
+connections remain intact.
+
+## Legacy: host signed APK updates on the VPS
+
+The following procedure remains for older APKs that fetch updates from the VPS.
+Their HTTPS server serves APKs and a manifest at
 `/app-updates/latest.json`. Dashboard API authentication remains unchanged.
 The app checks on opening and foreground return, then every minute while unlocked
 and visible. Failed checks/downloads retry automatically after 30 seconds; manual

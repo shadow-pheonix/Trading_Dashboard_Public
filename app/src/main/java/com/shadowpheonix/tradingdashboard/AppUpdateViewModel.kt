@@ -43,18 +43,10 @@ private class AndroidUpdatePlatform(private val context: Application) : UpdatePl
         .callTimeout(20, TimeUnit.SECONDS).build()
     private val directory get() = File(context.filesDir, "app-updates")
     private val verified get() = File(directory, "verified.apk")
-    private val connections = ConnectionStore(context)
-    private fun serverUrl(): String = connections.load().firstOrNull()?.baseUrl
-        ?: throw IllegalStateException("Add a dashboard connection before checking for updates.")
     private fun downloadFile(release: AppRelease) = File(requireNotNull(context.getExternalFilesDir(null)), "app-updates/${release.apk}")
 
     override suspend fun fetchRelease(): AppRelease = withContext(Dispatchers.IO) {
-        client.newCall(updateRequest(serverUrl())).execute().use { response ->
-            check(response.isSuccessful)
-            val body = response.body ?: error("Missing manifest")
-            check(body.contentLength() <= 16 * 1024)
-            readUpdateManifest(body.byteStream())
-        }
+        fetchUpdateManifest(client)
     }
 
     override fun savedRelease(): AppRelease? {
@@ -70,7 +62,7 @@ private class AndroidUpdatePlatform(private val context: Application) : UpdatePl
         val file = downloadFile(release)
         file.parentFile?.mkdirs()
         file.parentFile?.listFiles()?.forEach { it.delete() }
-        val request = DownloadManager.Request(Uri.parse(updateRequest(serverUrl(), release.apk).url.toString()))
+        val request = DownloadManager.Request(Uri.parse(updateRequest(release.apk).url.toString()))
             .setTitle("Trading Dashboard ${release.versionName}")
             .setDescription("Downloading app update")
             .setMimeType("application/vnd.android.package-archive")

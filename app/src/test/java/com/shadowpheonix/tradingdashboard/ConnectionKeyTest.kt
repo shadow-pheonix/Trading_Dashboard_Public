@@ -33,8 +33,9 @@ class ConnectionKeyTest {
                 assertFalse(request.url.toString().contains(code))
                 assertFalse(request.url.toString().contains(token))
             }
-            assertEquals(url + "/app-updates/latest.json", updateRequest(connection.baseUrl).url.toString())
-            assertNull(updateRequest(connection.baseUrl).header("Authorization"))
+            assertEquals("github.com", updateRequest().url.host)
+            assertFalse(updateRequest().url.toString().contains(url))
+            assertNull(updateRequest().header("Authorization"))
         }
     }
 

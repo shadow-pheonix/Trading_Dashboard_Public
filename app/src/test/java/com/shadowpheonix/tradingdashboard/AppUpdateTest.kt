@@ -5,6 +5,10 @@ import kotlinx.coroutines.channels.Channel
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 class AppUpdateTest {
     private fun release(code: Long = 40) = AppRelease(code, "0.1.$code", "com.shadowpheonix.tradingdashboard",
@@ -149,13 +153,73 @@ class AppUpdateTest {
     }
 
     @Test fun publicManifestRequestNeverCarriesDashboardCredentialsAndDisallowsTraversal() {
-        val request = updateRequest(DASHBOARD_URL)
-        assertEquals("$DASHBOARD_URL/app-updates/latest.json", request.url.toString())
+        val request = updateRequest()
+        assertEquals("https://github.com/$UPDATE_REPOSITORY/releases/latest/download/latest.json", request.url.toString())
         assertEquals("no-cache", request.header("Cache-Control"))
         assertNull(request.header("Authorization"))
-        assertNull(updateRequest(DASHBOARD_URL, release().apk).header("Authorization"))
+        val apk = updateRequest(release().apk)
+        assertEquals("https://github.com/$UPDATE_REPOSITORY/releases/download/v0.1.40/${release().apk}", apk.url.toString())
+        assertNull(apk.header("Authorization"))
         for (file in listOf("../config.json", "https://evil.test/x.apk", "Trading-Dashboard-0.1.0.apk", "latest.json?key=x"))
-            assertThrows(IllegalArgumentException::class.java) { updateRequest(DASHBOARD_URL, file) }
+            assertThrows(IllegalArgumentException::class.java) { updateRequest(file) }
+    }
+
+    @Test fun releaseRedirectsAllowOnlyGitHubHttpsDownloadsWithoutCredentials() {
+        val original = updateRequest()
+        val versioned = updateRedirect(original, "/$UPDATE_REPOSITORY/releases/download/v0.1.40/latest.json")
+        assertEquals("github.com", versioned.url.host)
+        val cdn = updateRedirect(versioned, "https://release-assets.githubusercontent.com/synthetic/manifest?signature=test")
+        assertEquals("release-assets.githubusercontent.com", cdn.url.host)
+        assertNull(cdn.header("Authorization"))
+        assertNull(cdn.header("Cookie"))
+        for (url in listOf("http://github.com/file", "https://github.com.evil.test/file", "https://evil.test/file",
+            "https://user:password@github.com/file", DASHBOARD_URL))
+            assertThrows(IllegalArgumentException::class.java) { updateRedirect(original, url) }
+        assertThrows(IllegalArgumentException::class.java) {
+            updateRedirect(original.newBuilder().header("Authorization", "Bearer synthetic").build(), cdn.url.toString())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            updateRedirect(original.newBuilder().header("Cookie", "synthetic=value").build(), cdn.url.toString())
+        }
+    }
+
+    @Test fun manifestFetcherFollowsPublicGitHubRedirectsAndParsesTheRelease() {
+        val visited = mutableListOf<String>()
+        val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+            .addInterceptor { chain ->
+                val request = chain.request()
+                visited += request.url.host
+                assertNull(request.header("Authorization")); assertNull(request.header("Cookie"))
+                val response = Response.Builder().request(request).protocol(Protocol.HTTP_1_1).message("Synthetic")
+                when (visited.size) {
+                    1 -> response.code(302).header("Location", "/$UPDATE_REPOSITORY/releases/download/v0.1.40/latest.json")
+                        .body("".toResponseBody()).build()
+                    2 -> response.code(302).header("Location", "https://release-assets.githubusercontent.com/synthetic/latest.json")
+                        .body("".toResponseBody()).build()
+                    else -> response.code(200).body(dashboardJson.encodeToString(AppRelease.serializer(), release()).toResponseBody()).build()
+                }
+            }.build()
+        assertEquals(release(), fetchUpdateManifest(client))
+        assertEquals(listOf("github.com", "github.com", "release-assets.githubusercontent.com"), visited)
+    }
+
+    @Test(timeout = 2000) fun manifestFetcherBoundsRedirectLoopsAndRejectsBadResponses() {
+        for ((status, location, body) in listOf(Triple(302, "https://github.com/loop", ""),
+            Triple(302, null, ""), Triple(302, "https://evil.test/manifest", ""),
+            Triple(404, null, "unavailable"), Triple(200, null, "invalid JSON"),
+            Triple(200, null, "x".repeat(16385)))) {
+            var requests = 0
+            val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+                .addInterceptor { chain ->
+                    requests++
+                    val response = Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                        .message("Synthetic").code(status).body(body.toResponseBody())
+                    if (location != null) response.header("Location", location)
+                    response.build()
+                }.build()
+            assertThrows(Exception::class.java) { fetchUpdateManifest(client) }
+            assertTrue(requests in 1..6)
+        }
     }
 
     @Test fun invalidManifestsCannotStartDownloads() {

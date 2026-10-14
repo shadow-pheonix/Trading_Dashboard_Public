@@ -241,8 +241,8 @@ or revoke login keys to address a version mismatch.
 
 ## Host signed APK updates on the VPS
 
-The repository is private, so the Android app cannot anonymously download its
-GitHub releases. The HTTPS proxy serves public signed APKs and a manifest at
+The public repository publishes signed APKs in GitHub Releases. Installed apps
+continue using their encrypted saved connection's HTTPS server, which serves APKs and a manifest at
 `/app-updates/latest.json`. Dashboard API authentication remains unchanged.
 The app checks on opening and foreground return, then every minute while unlocked
 and visible. Failed checks/downloads retry automatically after 30 seconds; manual
@@ -259,7 +259,7 @@ After the dashboard upgrade above installs the updated proxy allowlist, run as
 your normal GitHub-authenticated user for each released version:
 
 ```bash
-cd /home/coder/HLTRADINGBOT/Trading_Dashboard
+cd /home/coder/HLTRADINGBOT/Trading_Dashboard_Public
 # If GitHub CLI is not installed, a human can install it: sudo apt-get install gh
 # Authenticate once as this user: gh auth login
 bash scripts/host-app-update.sh v0.1.VERSION

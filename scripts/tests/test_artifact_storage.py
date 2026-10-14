@@ -139,10 +139,19 @@ class CleanupCase(unittest.TestCase):
         valid = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": storage.REPOSITORY,
                  "GITHUB_REF": "refs/heads/main", "GH_TOKEN": "synthetic-token"}
         for field, value in [("GITHUB_REPOSITORY", "other/repository"),
+                             ("GITHUB_REPOSITORY", "shadow-pheonix/Trading_Dashboard"),
                              ("GITHUB_REF", "refs/heads/feature"), ("GITHUB_ACTIONS", "false")]:
             with patch.dict(os.environ, {**valid, field: value}, clear=True), patch.object(storage.sys, "argv", [str(SCRIPT), "--apply"]):
                 with self.assertRaises(storage.ApiError):
                     storage.main()
+
+    def test_cli_accepts_only_the_new_public_repository_main_runner(self):
+        env = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "shadow-pheonix/Trading_Dashboard_Public",
+               "GITHUB_REF": "refs/heads/main", "GH_TOKEN": "synthetic-token"}
+        with patch.dict(os.environ, env, clear=True), patch.object(storage.sys, "argv", [str(SCRIPT), "--apply"]), \
+                patch.object(storage, "GitHub", return_value=self.api):
+            storage.main()
+        self.assertEqual([9, 8], self.api.deleted)
 
 
 class ApiCase(unittest.TestCase):

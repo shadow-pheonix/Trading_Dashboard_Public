@@ -8,7 +8,7 @@ import sys
 import urllib.error
 import urllib.request
 
-REPOSITORY = "shadow-pheonix/Trading_Dashboard"
+REPOSITORY = "shadow-pheonix/Trading_Dashboard_Public"
 APK_NAME = re.compile(r"Trading-Dashboard-(0\.1\.([1-9][0-9]*))-signed-apk\Z")
 KEEP_VERSIONS = 3
 

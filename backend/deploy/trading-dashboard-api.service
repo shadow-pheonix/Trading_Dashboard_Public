@@ -1,0 +1,51 @@
+[Unit]
+Description=Read-only trading dashboard API
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=trading-dashboard
+Group=trading-dashboard
+SupplementaryGroups=hlmacdbot_readers
+Slice=trading-dashboard.slice
+WorkingDirectory=/opt/trading-dashboard/backend
+ExecStart=/opt/trading-dashboard/venv/bin/python -m dashboard_backend --config /var/lib/trading-dashboard/config.json --database /var/lib/trading-dashboard/dashboard.sqlite serve --port 18080
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=15
+Nice=15
+IOSchedulingClass=idle
+OOMScoreAdjust=500
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=tmpfs
+# Directory binds follow atomic state-file replacement; individual file binds would freeze state.
+BindReadOnlyPaths=-/home/hlmacdbot_user/HLTRADINGBOT -/home/hlmacdbot_user/HLTRADINGBOTVINAY -/home/hlmacdbot_user/HLTRADINGBOTMADHU
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# SQLite may create WAL/SHM sidecars even with read-only query connections.
+ReadWritePaths=/var/lib/trading-dashboard
+InaccessiblePaths=-/etc/hlmacdbot -/opt/hlmacdbot /var/lib/trading-dashboard/keys
+InaccessiblePaths=-/home/hlmacdbot_user/HLTRADINGBOT/.env -/home/hlmacdbot_user/HLTRADINGBOTVINAY/.env -/home/hlmacdbot_user/HLTRADINGBOTMADHU/.env
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

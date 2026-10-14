@@ -1,0 +1,17 @@
+{
+  "pollSeconds": 3,
+  "instances": [{
+    "id": "main",
+    "label": "Main",
+    "edgePath": "/home/hlmacdbot_user/HLTRADINGBOT/edge_trades_combined.csv",
+    "accounts": [{
+      "id": "wallet-a",
+      "label": "Wallet A - M1",
+      "strategy": "M1",
+      "edgeModel": "M1-Fast",
+      "symbol": "BTCUSDT",
+      "statePath": "/home/hlmacdbot_user/HLTRADINGBOT/hl_state_m1.json",
+      "historyPath": "/home/hlmacdbot_user/HLTRADINGBOT/hl_trades_m1.csv"
+    }]
+  }]
+}

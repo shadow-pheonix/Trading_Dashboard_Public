@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Human administrator entry point. No trading-bot paths or service actions.
+set -euo pipefail
+if [[ ${EUID} -ne 0 ]]; then
+  echo 'Run as a human administrator with sudo.' >&2
+  exit 1
+fi
+if [[ $# -lt 1 ]]; then
+  echo 'Usage: trading-dashboard-admin init | key-create INSTANCE [NAME [HTTPS_ORIGIN]] | key-revoke INSTANCE' >&2
+  exit 1
+fi
+action=$1
+shift
+case "$action" in
+  init)
+    [[ $# -eq 0 ]] || exit 1
+    arguments=(init)
+    ;;
+  key-create)
+    [[ $# -ge 1 && $# -le 3 && $1 =~ ^[a-zA-Z0-9_-]{1,64}$ ]] || exit 1
+    instance=$1
+    output_name=${2:-$instance}
+    [[ $output_name =~ ^[a-zA-Z0-9_-]{1,64}$ ]] || exit 1
+    arguments=(key-create --instance "$instance" --output "/var/lib/trading-dashboard/keys/${output_name}-access-key.txt")
+    if [[ $# -eq 3 ]]; then
+      arguments+=(--server-url "$3")
+    fi
+    ;;
+  key-revoke)
+    [[ $# -eq 1 && $1 =~ ^[a-zA-Z0-9_-]{1,64}$ ]] || exit 1
+    arguments=(key-revoke --instance "$1")
+    ;;
+  *) echo 'Unknown dashboard administration operation.' >&2; exit 1 ;;
+esac
+cd /opt/trading-dashboard/backend
+exec runuser -u trading-dashboard -- env PYTHONDONTWRITEBYTECODE=1 \
+  /opt/trading-dashboard/venv/bin/python -m dashboard_backend \
+  --config /var/lib/trading-dashboard/config.json \
+  --database /var/lib/trading-dashboard/dashboard.sqlite "${arguments[@]}"

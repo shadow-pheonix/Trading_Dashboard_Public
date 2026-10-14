@@ -1,0 +1,403 @@
+{
+  "reference": "edge_engine.py _unified_return_series + _equity_and_drawdown_from_returns; extracted AST only, no bot imports",
+  "sourceHash": "33e8477d90eaf40e3f71e73b8f4452d7c630b7fc8f68b350b2df294cbcf3a24c",
+  "cases": [
+    {
+      "name": "six_losses",
+      "rows": [
+        {
+          "id": "0",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300000,
+          "source": "live",
+          "netPnl": -100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 900.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 900
+          }
+        },
+        {
+          "id": "1",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300001,
+          "source": "live",
+          "netPnl": -100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 800.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 900
+          }
+        },
+        {
+          "id": "2",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300002,
+          "source": "live",
+          "netPnl": -100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 700.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 900
+          }
+        },
+        {
+          "id": "3",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300003,
+          "source": "live",
+          "netPnl": -100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 600.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 900
+          }
+        },
+        {
+          "id": "4",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300004,
+          "source": "live",
+          "netPnl": -100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 500.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 900
+          }
+        },
+        {
+          "id": "5",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300005,
+          "source": "live",
+          "netPnl": -100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 400.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 900
+          }
+        }
+      ],
+      "pct": 46.855899999999984,
+      "usd": 4685.589999999998,
+      "equity": 5314.410000000002
+    },
+    {
+      "name": "peak_recovery",
+      "rows": [
+        {
+          "id": "0",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300000,
+          "source": "live",
+          "netPnl": 100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 1100.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 1100
+          }
+        },
+        {
+          "id": "1",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300001,
+          "source": "live",
+          "netPnl": -200,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 900.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 800
+          }
+        },
+        {
+          "id": "2",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300002,
+          "source": "live",
+          "netPnl": 250,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 1150.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 1250
+          }
+        }
+      ],
+      "pct": 19.999999999999996,
+      "usd": 2199.9999999999995,
+      "equity": 11000.0
+    },
+    {
+      "name": "initial_loss",
+      "rows": [
+        {
+          "id": "0",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300000,
+          "source": "live",
+          "netPnl": -100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 900.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 900
+          }
+        }
+      ],
+      "pct": 9.999999999999998,
+      "usd": 999.9999999999998,
+      "equity": 9000.0
+    },
+    {
+      "name": "all_wins",
+      "rows": [
+        {
+          "id": "0",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300000,
+          "source": "live",
+          "netPnl": 100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 1100.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 1100
+          }
+        },
+        {
+          "id": "1",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300001,
+          "source": "live",
+          "netPnl": 200,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 1300.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 1200
+          }
+        }
+      ],
+      "pct": -0.0,
+      "usd": 0.0,
+      "equity": 13200.0
+    },
+    {
+      "name": "mixed_sources",
+      "rows": [
+        {
+          "id": "0",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300000,
+          "source": "backtest",
+          "netPnl": 100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 1100.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 1100
+          }
+        },
+        {
+          "id": "1",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300001,
+          "source": "live",
+          "netPnl": 20,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 1120.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 1020
+          }
+        },
+        {
+          "id": "2",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300002,
+          "source": "backtest",
+          "netPnl": -30,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 1090.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 970
+          }
+        },
+        {
+          "id": "3",
+          "accountId": "a",
+          "strategy": "M1",
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "openedAt": 100000,
+          "closedAt": 300003,
+          "source": "live",
+          "netPnl": -100,
+          "fees": 1,
+          "entryPrice": 100,
+          "exitPrice": 110,
+          "funding": null,
+          "_equity": null,
+          "_chart": {
+            "cumulative": 990.0,
+            "position": 400,
+            "leverage": 2,
+            "combined": 900
+          }
+        }
+      ],
+      "pct": 10.818181818181817,
+      "usd": 1213.8000000000004,
+      "equity": 10006.2
+    }
+  ],
+  "protectedMonitorCommit": "0b7b7ce33972faa05cfdd98a7b15af7057d8c7b1",
+  "pureFunctionAstHashes": {
+    "_equity_and_drawdown_from_returns": "5003beeb6213727f428df0cf636c0c3dba22a46632b87af694f72a81c0ddc55a",
+    "_unified_return_series": "814c18007088b7afed56686081899f213fc95611d67b66f213d97e24f7eedb96"
+  }
+}

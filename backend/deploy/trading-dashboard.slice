@@ -1,0 +1,13 @@
+[Unit]
+Description=Resource budget for read-only trading dashboard
+
+[Slice]
+CPUAccounting=yes
+CPUQuota=15%
+CPUWeight=10
+MemoryAccounting=yes
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=64
+IOAccounting=yes
+IOWeight=10

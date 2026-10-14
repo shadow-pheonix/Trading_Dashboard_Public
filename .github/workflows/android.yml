@@ -1,0 +1,156 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Compile, test and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify release publishing without network or credentials
+        run: |
+          bash -n scripts/publish-release.sh
+          bash -n scripts/host-app-update.sh
+          python3 -m unittest discover -s scripts/tests -v
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Gate APK release on backend tests and real HTTP/WebSocket checks
+        working-directory: backend
+        run: |
+          python -W error::ResourceWarning -m unittest discover -s tests -v
+          python -m pip install -r requirements.txt
+          python -m tests.smoke_http
+          bash -n deploy/install.sh deploy/update.sh deploy/rollback.sh deploy/trading-dashboard-admin
+          python tests/verify_units.py
+      - name: Compile app and check security behavior
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+      - name: Check that two test builds preserve their signing certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: test-only-disposable-password
+          ANDROID_KEY_ALIAS: dashboard
+        run: |
+          set -euo pipefail
+          # This disposable QA key is never used for published APKs.
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/qa-signing.p12"
+          keytool -genkeypair -alias dashboard -keystore "$ANDROID_KEYSTORE_PATH" -storetype PKCS12 -keyalg RSA -keysize 2048 -validity 2 -dname 'CN=Disposable CI Test' -storepass:env ANDROID_KEYSTORE_PASSWORD -keypass:env ANDROID_KEYSTORE_PASSWORD
+          expected=$(keytool -exportcert -alias dashboard -keystore "$ANDROID_KEYSTORE_PATH" -storepass:env ANDROID_KEYSTORE_PASSWORD | sha256sum | cut -d ' ' -f 1)
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          for version in 1 2; do
+            APP_VERSION_CODE="$version" gradle --no-daemon :app:assembleRelease
+            "$apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/qa-cert-$version.txt"
+            actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/qa-cert-$version.txt" | tr '[:upper:]' '[:lower:]')
+            test "$actual" = "$expected"
+          done
+          rm -f "$ANDROID_KEYSTORE_PATH"
+          echo "Two successive test APK versions used the same certificate. Test APKs are not published." >> "$GITHUB_STEP_SUMMARY"
+      - name: Store verification reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verification-reports-${{ github.run_number }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          retention-days: 14
+
+  signed-apk:
+    name: Build APK with permanent signature
+    needs: verify
+    permissions:
+      contents: write
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      APP_VERSION_OFFSET: ${{ vars.APP_VERSION_OFFSET || '0' }}
+      ANDROID_KEY_ALIAS: dashboard
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Continue the installed app version sequence
+        run: python3 scripts/build-version.py "$APP_VERSION_OFFSET" "$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore permanent signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::Permanent signing is not configured. Run scripts/setup-signing.sh once. No random-key APK will be published."
+            exit 1
+          fi
+          umask 077
+          ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/dashboard-signing.p12"
+          printf 'ANDROID_KEYSTORE_PATH=%s\n' "$ANDROID_KEYSTORE_PATH" >> "$GITHUB_ENV"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          actual=$(keytool -exportcert -alias "$ANDROID_KEY_ALIAS" -keystore "$ANDROID_KEYSTORE_PATH" -storetype PKCS12 -storepass:env ANDROID_KEYSTORE_PASSWORD | sha256sum | cut -d ' ' -f 1)
+          if [ "$actual" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::Signing certificate differs from the pinned certificate."
+            exit 1
+          fi
+      - name: Build signed update APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Verify APK signature and prepare download
+        env:
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release.apk
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk" > certificate.txt
+          actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' certificate.txt | tr '[:upper:]' '[:lower:]')
+          test "$actual" = "$EXPECTED_CERT_SHA256"
+          mkdir -p dist
+          cp "$apk" "dist/Trading-Dashboard-${APP_VERSION_NAME}.apk"
+          cp certificate.txt dist/signature.txt
+          (cd dist && sha256sum ./*.apk > SHA256SUMS.txt)
+          printf 'Version: %s\nVersion code: %s\nCommit: %s\nCertificate SHA-256: %s\n' "$APP_VERSION_NAME" "$APP_VERSION_CODE" "$GITHUB_SHA" "$actual" > dist/build-info.txt
+          python3 scripts/update-manifest.py dist
+          echo "Signed APK ready. Every update uses the pinned certificate and application ID." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload installable APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Trading-Dashboard-${{ env.APP_VERSION_NAME }}-signed-apk
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish versioned APK in GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-release.sh
+      - name: Remove temporary signing files
+        if: always()
+        run: rm -f "$ANDROID_KEYSTORE_PATH"

@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Open dashboard frame; the rising price arrow completes its top-right corner. -->
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="#EDF4FF" android:strokeWidth="4"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M55,30H40C33.37,30 28,35.37 28,42V68C28,74.63 33.37,80 40,80H68C74.63,80 80,74.63 80,68V55" />
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="#6FE2BC" android:strokeWidth="5.5"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M39,64L49,53L59,60L78,35M65,35H78V48" />
+</vector>

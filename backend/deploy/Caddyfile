@@ -1,0 +1,41 @@
+{
+    admin off
+    persist_config off
+    log default {
+        level ERROR
+        exclude http.log.error
+    }
+    servers {
+        max_header_size 8KB
+        timeouts {
+            read_header 5s
+            read_body 10s
+            idle 30s
+        }
+    }
+}
+
+dashboard.example.invalid {
+    @appupdates {
+        method GET HEAD
+        path_regexp appupdates ^/app-updates/(latest\.json|Trading-Dashboard-0\.1\.[1-9][0-9]*\.apk)$
+    }
+    handle @appupdates {
+        uri strip_prefix /app-updates
+        root * /opt/trading-dashboard/app-updates
+        header Cache-Control "no-store"
+        header X-Content-Type-Options "nosniff"
+        file_server
+    }
+    @dashboard path /healthz /v1/dashboard /v1/live /v2/dashboard /v2/live /v2/balances /v2/alerts /v2/alerts/live
+    handle @dashboard {
+        reverse_proxy 127.0.0.1:18080 {
+            header_up -X-Forwarded-For
+            header_up -X-Forwarded-Host
+            header_up -X-Forwarded-Proto
+        }
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

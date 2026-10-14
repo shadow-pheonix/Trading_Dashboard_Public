@@ -1,0 +1,51 @@
+name: Keep APK artifact storage bounded
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/artifact-storage.yml
+      - .github/workflows/android.yml
+      - scripts/prune-actions-artifacts.py
+      - scripts/tests/test_artifact_storage.py
+  workflow_run:
+    workflows: [Android build]
+    types: [completed]
+  schedule:
+    - cron: '31 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-artifact-storage
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Verify cleanup safety without credentials
+        run: python3 -m unittest discover -s scripts/tests -p test_artifact_storage.py -v
+      - name: Remove older APK copies already published as Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/prune-actions-artifacts.py --apply

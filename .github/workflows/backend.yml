@@ -1,0 +1,49 @@
+name: Backend checks
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', '.github/workflows/backend.yml', 'docs/API.md']
+  pull_request:
+    branches: [main]
+    paths: ['backend/**', '.github/workflows/backend.yml', 'docs/API.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Python ${{ matrix.python }} API and isolation checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.14']
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Verify backend behavior without bot or exchange access
+        run: python -W error::ResourceWarning -m unittest discover -s tests -v
+      - name: Compile backend and tests
+        run: python -m compileall -q dashboard_backend tests
+      - name: Verify installation scripts and systemd unit syntax without installing
+        run: |
+          bash -n deploy/install.sh deploy/update.sh deploy/rollback.sh deploy/trading-dashboard-admin
+          python tests/verify_units.py
+      - name: Install pinned HTTP server
+        run: python -m pip install -r requirements.txt
+      - name: Verify actual HTTP and WebSocket service using synthetic data
+        run: python -m tests.smoke_http

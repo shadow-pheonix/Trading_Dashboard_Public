@@ -1,0 +1,53 @@
+#!/usr/bin/python3 -I
+"""Root-owned dashboard-only bridge. Never executes dashboard code as root."""
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+RUNTIME = Path('/home/coder/HLTRADINGBOT/.dashboard-runtime')
+API = 'trading-dashboard-api.service'
+HTTPS = 'trading-dashboard-https.service'
+
+
+def command(arguments):
+    if arguments == ['restart-api']:
+        return ['/usr/bin/systemctl', 'restart', API]
+    if arguments == ['restart-https']:
+        return ['/usr/bin/systemctl', 'restart', HTTPS]
+    if arguments == ['status']:
+        return ['/usr/bin/systemctl', 'show', '--property=ActiveState', '--property=SubState', API, HTTPS]
+    if len(arguments) == 2 and arguments[0] == 'check' and re.fullmatch('[a-f0-9]{40}', arguments[1]):
+        release = RUNTIME / 'releases' / arguments[1]
+        if release.is_symlink() or release.resolve() != release:
+            raise ValueError()
+        return ['/usr/sbin/runuser', '-u', 'trading-dashboard', '--',
+                str(release / 'venv/bin/python'), '-I', '-B',
+                '/usr/local/lib/trading-dashboard/check-startup.py', str(release / 'backend'),
+                '/var/lib/trading-dashboard/config.json', '/var/lib/trading-dashboard/dashboard.sqlite']
+    raise ValueError()
+
+
+def main():
+    try:
+        if os.geteuid() != 0:
+            raise ValueError()
+        args = command(sys.argv[1:])
+        if sys.argv[1] == 'check':
+            # Importing candidate code happens as the isolated service account.
+            # Suppress candidate output; private configuration never reaches the caller.
+            result = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            result = subprocess.run(args)
+        if result.returncode:
+            raise ValueError()
+    except Exception:
+        print('Dashboard-only control refused or failed.', file=sys.stderr)
+        return 1
+    print('Dashboard-only operation complete.')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

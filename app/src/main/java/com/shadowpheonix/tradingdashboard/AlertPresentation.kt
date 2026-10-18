@@ -31,14 +31,22 @@ data class AlertPresentation(val title: String, val preview: String, val details
 // Messages are treated as plain text. Never create actions from URLs in bot messages.
 fun presentAlert(instance: String, alert: DashboardAlert): AlertPresentation {
     alert.validate()
-    val lines = alert.message.replace("\r", "").lines().map { line ->
+    val formatted = alert.message.replace("\r", "").lines().map { line ->
         line.replace("*", "").replace("`", "").trim()
-    }.filter { line -> line.isNotBlank() && !line.all { it in "━─—-=" } }
-    val body = lines.joinToString("\n")
+    }.filterNot { line -> line.isNotBlank() && line.all { it in "━─—-=" } }
+    val body = formatted.joinToString("\n").trim().replace(Regex("\n{3,}"), "\n\n")
+    val lines = formatted.filter { it.isNotBlank() }
     val upper = body.uppercase(java.util.Locale.ROOT)
-    val models = Regex("\\bM([123])(?:-Fast)?(?:-B)?\\b", RegexOption.IGNORE_CASE)
-        .findAll(body).map { "M${it.groupValues[1]}" }.distinct().toList()
+    val modelPattern = Regex("\\bM([123])(?:-(Fast|Med|Slow))?(-B)?\\b", RegexOption.IGNORE_CASE)
+    val matches = modelPattern.findAll(body).toList()
+    val models = matches.map { "M${it.groupValues[1]}" }.distinct()
     val model = models.singleOrNull()
+    val header = Regex("\\[(M[123](?:-(?:Fast|Med|Slow))?(?:-B)?)\\]", RegexOption.IGNORE_CASE)
+        .find(body)?.groupValues?.get(1)?.let { modelPattern.matchEntire(it) }
+    val wallets = (header?.let { listOf(it) } ?: matches).map {
+        if (it.groupValues[3].isNotEmpty()) "Wallet B" else "Wallet A"
+    }.distinct()
+    val wallet = if (model != null) wallets.singleOrNull() else null
     val urgent = listOf("POSITION IS NAKED", "POSITION NAKED", "UNPROTECTED", "FATAL", "CRITICAL EXECUTION FAILURE",
         "COULD NOT RE-ARM STOP", "STOP LOSS MISSING", "CIRCUIT BREAKER", "BREAKER HALT", "POSITION HAS NO STOP-LOSS", "NO RESTING STOP").any { it in upper }
     val entry = "MACRO MACD SIGNAL" in upper || "TRADE OPENED" in upper
@@ -54,7 +62,7 @@ fun presentAlert(instance: String, alert: DashboardAlert): AlertPresentation {
         risk -> "Risk update"
         else -> lines.firstOrNull()?.replace(Regex("^\\[[^]]+]\\s*"), "")?.take(60) ?: "Bot update"
     }
-    val title = listOfNotNull(instance.take(40), model, action).joinToString(" · ")
+    val title = listOfNotNull(instance.take(40).takeIf { it.isNotBlank() }, model, wallet, action).joinToString(" · ")
     val keys = if (entry) listOf("Execution Price:", "Position Size (notional):", "Stop Loss:")
         else if (exit) listOf("Reason:", "PnL:", "Price:") else emptyList()
     val highlights = keys.mapNotNull { key -> lines.find { key in it }?.removePrefix("• ") }

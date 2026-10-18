@@ -229,6 +229,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val connections = mutable.value.connections.filterNot { it.id == id }
         try { store.save(connections) }
         catch (_: Exception) { mutable.update { it.copy(error = "Could not remove this saved connection.") }; return }
+        AlertStore(getApplication<Application>()).forget(id)
+        AlertNotifications(getApplication<Application>()).dismiss(id)
         macdSession.forget(id)
         val wasActive = mutable.value.activeId == id
         if (wasActive) {

@@ -17,6 +17,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.TradingDashboard"
         android:supportsRtl="true">
+        <receiver android:name=".AlertNotificationDismissReceiver" android:exported="false" />
         <receiver android:name=".AlertResumeReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

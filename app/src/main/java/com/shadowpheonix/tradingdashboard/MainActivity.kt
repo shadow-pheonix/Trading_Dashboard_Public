@@ -40,6 +40,7 @@ class MainActivity : FragmentActivity() {
     private val dashboard: DashboardViewModel by viewModels()
     private lateinit var alertStore: AlertStore
     private var alertsEnabled by mutableStateOf(true)
+    private var connectionNotifications by mutableStateOf<Map<String, Boolean>>(emptyMap())
     private var alertHistory by mutableStateOf<Map<String, List<DashboardAlert>>>(emptyMap())
     private var alertStatus by mutableStateOf<List<Pair<String, String>>>(emptyList())
     private val alertPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -116,7 +117,13 @@ class MainActivity : FragmentActivity() {
                         launch { dashboard.streamWhileVisible() }
                         launch { updates.monitor() }
                         launch {
+                            dashboard.alertInbox.route.collect { target ->
+                                if (target != null) AlertNotifications(this@MainActivity).dismiss(target.connectionId)
+                            }
+                        }
+                        launch {
                             dashboard.state.map { it.connections }.distinctUntilChanged().collect { connections ->
+                                connectionNotifications = connections.associate { it.id to alertStore.notificationsEnabled(it.id) }
                                 if (connections.isNotEmpty() && alertsEnabled) {
                                     if (!notificationPermissionGranted() && !alertStore.prompted()) {
                                         alertStore.prompted(true)
@@ -131,7 +138,12 @@ class MainActivity : FragmentActivity() {
                                 alertHistory = withContext(Dispatchers.IO) {
                                     connections.associate { it.id to try { alertStore.load(it.id).history } catch (_: Exception) { emptyList() } }
                                 }
-                                alertStatus = connections.map { it.label to if (!notificationPermissionGranted()) "Notifications disabled in Android Settings" else alertStore.status(it.id) }
+                                alertStatus = connections.map { connection -> connection.label to when {
+                                    !alertsEnabled -> "All notifications paused"
+                                    !alertStore.notificationsEnabled(connection.id) -> "Notifications muted · history still recorded"
+                                    !notificationPermissionGranted() -> "Notifications disabled in Android Settings"
+                                    else -> alertStore.status(connection.id)
+                                } }
                                 delay(3000)
                             }
                         }
@@ -145,7 +157,8 @@ class MainActivity : FragmentActivity() {
             val updateState by updates.state.collectAsStateWithLifecycle()
             if (state.unlocked) DashboardApp(dashboard, lockEnabled, lockError, ::changeAppLock,
                 updateState, updates::check, ::installUpdate, updates::later,
-                alertsEnabled, ::changeAlerts, alertStatus, alertHistory)
+                alertsEnabled, ::changeAlerts, alertStatus, alertHistory,
+                connectionNotifications, ::changeConnectionNotifications)
             else AppLockedScreen(state, appearance, ::authenticate, ::configureScreenLock)
         }
     }
@@ -161,9 +174,19 @@ class MainActivity : FragmentActivity() {
     private fun changeAlerts(enabled: Boolean) {
         alertsEnabled = enabled
         alertStore.enabled(enabled)
-        if (!enabled) AlertService.stop(this)
+        if (!enabled) { AlertService.stop(this); AlertNotifications(this).dismiss() }
         else if (notificationPermissionGranted()) startAlerts()
         else if (Build.VERSION.SDK_INT >= 33) {
+            alertStore.prompted(true)
+            alertPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    private fun changeConnectionNotifications(id: String, enabled: Boolean) {
+        if (dashboard.state.value.connections.none { it.id == id }) return
+        alertStore.notificationsEnabled(id, enabled)
+        connectionNotifications = connectionNotifications + (id to enabled)
+        if (!enabled) AlertNotifications(this).dismiss(id)
+        if (enabled && alertsEnabled && !notificationPermissionGranted() && Build.VERSION.SDK_INT >= 33) {
             alertStore.prompted(true)
             alertPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }

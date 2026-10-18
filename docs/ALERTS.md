@@ -55,6 +55,15 @@ before saving the cursor, so reconnection and a process interruption replay
 idempotently. Events missed during a disconnected period remain replayable while
 retained on the server. An expired-history warning remains visible.
 
+Settings → Connections has a bell between Open Home and Forget for each instance.
+Tap it to enable or mute that instance's notifications on this phone; a crossed-out
+bell and Muted label show the saved choice. Existing and new connections default
+to enabled. The Bot alerts switch remains the master control, and Android
+notification permissions and channel settings still apply. Muting keeps the
+instance's alert stream, history and replay cursor active, so enabling it again
+does not send notifications for events already recorded while muted. Forgetting
+a connection removes its notification preference with its local alert history.
+
 Routine `Evaluation outcome` messages with `Stage: no_cross` and a `no MACD cross`
 reason are suppressed from Android notifications and Bot alerts history for both
 wallets. Their sequences still advance the replay cursor; they cannot block later
@@ -67,10 +76,26 @@ Android channels, eligible for floating banners, sound and vibration. Existing
 installations get new floating trade/risk/report channels because Android cannot
 raise an existing channel's importance. Explicitly blocked legacy categories
 stay blocked; user channel settings and Do Not Disturb remain authoritative.
-The grouped summary stays silent on its own low-importance channel.
-Expanded notifications retain the full text. Lock-screen
-public content hides trading details, and taps open the app's authenticated
-alert history. No notification can place, close or modify a trade.
+Shade and floating alerts use Android's native MessagingStyle, as Telegram does,
+with instance avatars, explicit model/wallet headings, original emoji/paragraphs
+and bold headings/field labels. Each instance/category has one expanding message
+card; urgent risk stays separate from routine reports. Category channel settings
+remain authoritative. A new event can alert again; replaying an event already in
+the card updates it quietly. Rapid bursts remain buffered until Android
+acknowledges the submitted card. The silent grouped summary counts only pending
+cards, rather than the whole saved history. Each card retains up to 100 recent
+event IDs and displays the latest six messages; larger counts show 100+.
+
+Swiping away a card starts its next count fresh; summary counts refresh on
+dismissal. Opening the authenticated alert page clears notifications for the
+displayed instance (or all instances in the combined view), while Home opening
+does not. Muting or forgetting also clears that instance's shade cards; history
+is preserved when muting or viewing it. Lock-screen public content hides trading
+details. Taps open authenticated history with the complete saved message when
+Android limits the expanded text. No trading/reply actions or automatically
+suggested link actions are offered. Android/HyperOS, channel settings and Do Not
+Disturb determine the final banner appearance and sound; matching Telegram's
+native layout does not guarantee identical rendering or floating delivery.
 
 A special-use foreground service maintains the alert connection after leaving
 the UI. Settings → Bot alerts → Hide connection indicator opens Android's

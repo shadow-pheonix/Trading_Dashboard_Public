@@ -41,6 +41,7 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
 - Tap an active trade to see saved weighted leverage and a shared recorded stop.
   These details do not verify live exchange orders.
 - Settings saves Light, Dark or Use device setting without changing login keys.
+- Each saved connection has a bell to mute or enable its [chat-style notifications](docs/ALERTS.md#android).
 - Settings can enable or disable [Android fingerprint or screen-lock authentication](#app-unlock); existing installs keep it enabled.
 - Source, period and All models/M1/M2/M3 filters appear in Analytics and Trades.
   Their shared timeframe bar is 1W, 1M, 3M, 1Y, YTD, All; YTD starts January 1 UTC.
@@ -95,6 +96,14 @@ background/resume and closing/reopening on that device. System biometric UI and
 hardware require device testing; JVM tests do not exercise the fingerprint sensor.
 
 ## GitHub Actions builds and updates
+
+**Mandatory APK build timing:** After implementing and checking dashboard changes,
+AI assistants must ask the user: **“Build the APK now, or wait until after more
+implementations?”** Wait for an explicit answer before starting an APK build or
+taking an action that triggers one, including a push/PR, workflow dispatch or
+signing setup. Ask once per implementation batch; an explicit choice already
+given for that batch is sufficient. If the user chooses to wait, keep working on
+the requested implementations and defer the build so changes can share one APK.
 
 [Android build](../../actions/workflows/android.yml) compiles the APK and runs unit
 tests and Android lint on main pushes/PRs. Verification also signs two disposable

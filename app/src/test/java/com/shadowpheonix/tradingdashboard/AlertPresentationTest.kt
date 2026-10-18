@@ -8,7 +8,7 @@ class AlertPresentationTest {
 
     @Test fun entryNotificationHasModelDirectionAndCompactTradeDetails() {
         val value = presentAlert("Main", alert("🚀 *[M1-Fast-B] MACRO MACD SIGNAL* 🚀\n\n*Action:* SHORT\nExecution Price: $82,000\n━━━━━━━━━━━━━━\n• Position Size (notional): $10,000\n• Stop Loss: $84,000\nModel Capital at Entry: $5,000"))
-        assertEquals("Main · M1 · SHORT entered", value.title)
+        assertEquals("Main · M1 · Wallet B · SHORT entered", value.title)
         assertEquals(AlertCategory.Trade, value.category)
         assertEquals("alerts_trades_floating", alertChannel(value))
         assertTrue(value.preview.contains("$82,000"))
@@ -20,7 +20,7 @@ class AlertPresentationTest {
 
     @Test fun closedTradeIncludesPnlAndReasonWithoutBecomingAnUrgentRiskAlert() {
         val value = presentAlert("Vinay", alert("🛑 TRADE CLOSED\nReason: M2-Fast Stop Loss\nPrice: $80,000\n• PnL: −$40.00 (−0.8%)"))
-        assertEquals("Vinay · M2 · Trade closed", value.title)
+        assertEquals("Vinay · M2 · Wallet A · Trade closed", value.title)
         assertTrue(value.preview.contains("−$40.00"))
         assertFalse(value.urgent); assertEquals(AlertCategory.Trade, value.category)
     }
@@ -64,5 +64,21 @@ class AlertPresentationTest {
             .copy(category = AlertCategory.Risk, urgent = false)))
         assertNotEquals(ALERT_SUMMARY_CHANNEL, alertChannel(presentAlert("Main", alert("Daily report"))))
         assertNotEquals(ALERT_CONNECTION_CHANNEL, ALERT_SUMMARY_CHANNEL)
+    }
+
+    @Test fun headerWalletWinsOverGenericModelReferencesInTradeDetails() {
+        val value = presentAlert("Main", alert("🚀 [M2-Med-B] MACRO MACD SIGNAL\nAction: LONG\nModel: M2\nExecution Price: $80,000"))
+        assertEquals("Main · M2 · Wallet B · LONG entered", value.title)
+        val both = presentAlert("Main", alert("Report\nM1-Fast-B +10\nM1-Fast -5"))
+        assertFalse(both.title.contains("Wallet A")); assertFalse(both.title.contains("Wallet B"))
+    }
+
+    @Test fun notificationTextPreservesEmojiParagraphsAndAllTradeFields() {
+        val value = presentAlert("Main", alert("🚀 *[M1-Fast] MACRO MACD SIGNAL*\n\n*Action:* LONG\n\nExecution Price: $80,000\n• Stop Loss: $79,000\nLeverage: 4x\nNote: <b>literal text</b>"))
+        assertTrue(value.details.startsWith("🚀 [M1-Fast] MACRO MACD SIGNAL\n\nAction: LONG"))
+        assertTrue(value.details.contains("Leverage: 4x"))
+        assertTrue(value.details.contains("<b>literal text</b>"))
+        assertFalse(value.title.startsWith(" · "))
+        assertFalse(presentAlert("", alert("Daily report")).title.startsWith(" · "))
     }
 }

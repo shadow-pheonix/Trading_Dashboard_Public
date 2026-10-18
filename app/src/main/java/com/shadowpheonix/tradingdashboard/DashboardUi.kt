@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -97,7 +98,9 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
                  onAppLockChange: (Boolean) -> Unit = {}, updateState: AppUpdateState = AppUpdateState(),
                  onUpdateCheck: () -> Unit = {}, onUpdateInstall: () -> Unit = {}, onUpdateLater: () -> Unit = {},
                  alertsEnabled: Boolean = true, onAlertsChange: (Boolean) -> Unit = {}, alertStatus: List<Pair<String, String>> = emptyList(),
-                 alertHistory: Map<String, List<DashboardAlert>> = emptyMap()) {
+                 alertHistory: Map<String, List<DashboardAlert>> = emptyMap(),
+                 connectionNotifications: Map<String, Boolean> = emptyMap(),
+                 onConnectionNotificationsChange: (String, Boolean) -> Unit = { _, _ -> }) {
     val state by vm.state.collectAsStateWithLifecycle()
     val inbox by vm.alertInbox.route.collectAsStateWithLifecycle()
     val savedScreens = rememberSaveableStateHolder()
@@ -138,8 +141,7 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
                         Notice(message, Red, action = "Dismiss", onAction = vm::dismissError)
                     }
                     when {
-                        state.page == Page.Settings -> SettingsScreen(state, vm, appLockEnabled, appLockError, onAppLockChange, updateState, onUpdateCheck, onUpdateInstall, alertsEnabled, onAlertsChange, alertStatus, { vm.alertInbox.open() })
-                        state.active == null -> SettingsScreen(state, vm, appLockEnabled, appLockError, onAppLockChange, updateState, onUpdateCheck, onUpdateInstall, alertsEnabled, onAlertsChange, alertStatus, { vm.alertInbox.open() })
+                        state.page == Page.Settings || state.active == null -> SettingsScreen(state, vm, appLockEnabled, appLockError, onAppLockChange, updateState, onUpdateCheck, onUpdateInstall, alertsEnabled, onAlertsChange, alertStatus, { vm.alertInbox.open() }, connectionNotifications, onConnectionNotificationsChange)
                         else -> ContentScreen(state, vm)
                     }
                 }
@@ -1007,7 +1009,8 @@ internal fun AppearanceCard(appearance: Appearance, onAppearance: (Appearance) -
 private fun SettingsScreen(state: DashboardState, vm: DashboardViewModel, appLockEnabled: Boolean,
                            appLockError: String?, onAppLockChange: (Boolean) -> Unit,
                            updateState: AppUpdateState, onUpdateCheck: () -> Unit, onUpdateInstall: () -> Unit,
-                           alertsEnabled: Boolean, onAlertsChange: (Boolean) -> Unit, alertStatus: List<Pair<String, String>>, onAlertHistory: () -> Unit) {
+                           alertsEnabled: Boolean, onAlertsChange: (Boolean) -> Unit, alertStatus: List<Pair<String, String>>, onAlertHistory: () -> Unit,
+                           connectionNotifications: Map<String, Boolean>, onConnectionNotificationsChange: (String, Boolean) -> Unit) {
     var key by remember { mutableStateOf("") }
     var forget by remember { mutableStateOf<Connection?>(null) }
     LaunchedEffect(state.showConnectionForm) { if (!state.showConnectionForm) key = "" }
@@ -1033,8 +1036,23 @@ private fun SettingsScreen(state: DashboardState, vm: DashboardViewModel, appLoc
         items(state.connections, key = { it.id }) { connection ->
             Panel {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(connection.label, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    val notificationsEnabled = connectionNotifications[connection.id] ?: true
+                    Column(Modifier.weight(1f)) {
+                        Text(connection.label, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(if (!notificationsEnabled) "Muted" else if (!alertsEnabled) "All alerts paused" else "Notifications on",
+                            color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                     TextButton(onClick = { vm.select(connection.id); vm.page(Page.Dashboard) }, enabled = !state.connecting) { Text("Open Home") }
+                    IconToggleButton(checked = notificationsEnabled,
+                        onCheckedChange = { onConnectionNotificationsChange(connection.id, it) },
+                        enabled = !state.connecting,
+                        modifier = Modifier.semantics {
+                            stateDescription = if (!notificationsEnabled) "Muted" else if (!alertsEnabled) "On; all alerts paused" else "On"
+                        }) {
+                        Icon(if (notificationsEnabled) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsOff,
+                            "Notifications for ${connection.label}", tint = if (notificationsEnabled && alertsEnabled) Blue else Muted,
+                            modifier = Modifier.size(22.dp))
+                    }
                     IconButton(onClick = { forget = connection }, enabled = !state.connecting) {
                         Icon(Icons.Outlined.DeleteOutline, "Forget ${connection.label}", tint = Muted)
                     }

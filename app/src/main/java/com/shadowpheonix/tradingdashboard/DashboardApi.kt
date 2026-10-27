@@ -200,6 +200,9 @@ fun validateSnapshot(snapshot: DashboardSnapshot, period: String, account: Strin
         }
     }
     snapshot.positions.forEach { position ->
+        position.effectiveLeverage?.let {
+            if (!it.isFinite() || it <= 0 || it > 1e20) throw DashboardError("Invalid combined leverage.")
+        }
         val stops = position.stopPrices
         if (stops.size > 6 || stops.any { !it.isFinite() || it <= 0 || it > 1e20 } ||
             stops != stops.distinct().sorted() ||

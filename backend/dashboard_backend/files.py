@@ -244,12 +244,17 @@ class BotFiles:
                         if version == 2:
                             notional = positive_optional(trade.get("pos_size_quote", size * entry))
                             leverage = positive_optional(trade.get("leverage"))
-                            invested.append(positive_optional(notional / leverage) if notional is not None and leverage is not None else None)
+                            invested_capital = positive_optional(notional / leverage) if notional is not None and leverage is not None else None
+                            invested.append(invested_capital)
                         positions.append({"id": hashlib.sha256((account.id + ":" + str(opened)).encode()).hexdigest()[:24],
                             "accountId": account.id, "symbol": account.symbol, "side": trade["side"],
                             "size": size, "entryPrice": entry, "markPrice": mark, "unrealizedPnl": pnl,
                             "leverage": number(trade.get("leverage")),
                             "stopPrice": number(trade.get("sl")) if trade.get("sl") else None})
+                        if version == 2:
+                            # Telegram Current Trade Stats uses saved quote / leverage.
+                            # Do not substitute a guessed quote when that input is absent.
+                            positions[-1]['_investedCapital'] = invested_capital if 'pos_size_quote' in trade else None
                     if version == 2 and opened is not None:
                         entry_equity = positive_optional(trade.get("entry_capital"))
                 elif version == 2:

@@ -106,6 +106,58 @@ class V2Case(unittest.TestCase):
         self.assertEqual(403,self.dashboard('model=a')[0]);self.assertEqual(400,self.dashboard('account=a')[0])
         self.assertEqual(401,self.dashboard(token=None)[0])
 
+    def test_trade_stats_leverage_uses_combined_notional_over_invested_capital(self):
+        first = dict(self.open_trade(), sz=1, entry_price=80, pos_size_quote=80, leverage=2)
+        second = dict(self.open_trade(), sz=3, entry_price=120, pos_size_quote=360, leverage=6)
+        self.state(self.accounts[0], first); self.state(self.accounts[1], second)
+        status, body, _ = self.dashboard()
+        self.assertEqual(200, status)
+        position = body['positions'][0]
+        # Telegram: (80 + 360) / (80/2 + 360/6) = 4.4, not the size-weighted 5x.
+        self.assertAlmostEqual(4.4, position['effectiveLeverage'])
+        self.assertAlmostEqual(5, position['leverage'])  # Existing API field is unchanged.
+        self.assertAlmostEqual(440, position['size'] * position['entryPrice'])
+        self.assertNotIn('_investedCapital', json.dumps(body))
+        self.assertNotIn('effectiveLeverage', self.request()[1]['positions'][0])
+        # Use the saved quote for committed capital, even when size/entry differs.
+        self.state(self.accounts[0], dict(first, pos_size_quote=120))
+        self.assertAlmostEqual(440 / (120/2 + 360/6), self.dashboard()[1]['positions'][0]['effectiveLeverage'])
+
+    def test_trade_stats_leverage_handles_single_wallet_and_opposing_sides(self):
+        self.state(self.accounts[0], dict(self.open_trade(), pos_size_quote=200, leverage=4))
+        position = self.dashboard()[1]['positions'][0]
+        self.assertEqual(4, position['effectiveLeverage'])
+        self.state(self.accounts[1], dict(self.open_trade('SHORT'), pos_size_quote=200, leverage=2))
+        positions = self.dashboard()[1]['positions']
+        self.assertEqual({'LONG': 4, 'SHORT': 2}, {p['side']: p['effectiveLeverage'] for p in positions})
+
+    def test_trade_stats_leverage_never_uses_partial_or_invented_capital(self):
+        first = dict(self.open_trade(), pos_size_quote=200)
+        self.state(self.accounts[0], first)
+        for bad in (None, 0, -1, 'unknown', 'NaN', 'Infinity'):
+            with self.subTest(quote=bad):
+                self.state(self.accounts[1], dict(first, pos_size_quote=bad))
+                status, body, _ = self.dashboard()
+                self.assertEqual(200, status)
+                self.assertIsNone(body['positions'][0]['effectiveLeverage'])
+        self.state(self.accounts[1], self.open_trade())  # Old records with no quote.
+        self.assertIsNone(self.dashboard()[1]['positions'][0]['effectiveLeverage'])
+        for invalid_json_number in (float('nan'), float('inf')):
+            self.state(self.accounts[1], dict(first, pos_size_quote=invalid_json_number))
+            self.assertEqual(503, self.dashboard()[0])  # Existing strict JSON boundary.
+
+    def test_effective_leverage_validation_preserves_old_snapshots_and_rejects_payloads(self):
+        from dashboard_backend.grouping import validate_v2
+        self.state(self.accounts[0], dict(self.open_trade(), pos_size_quote=200))
+        original = self.dashboard()[1]
+        original['schemaVersion'] = 1
+        original['selectedAccount'] = original.pop('selectedModel')
+        for bad in (0, -1, float('nan'), float('inf'), True, 1e21, 'private', {'key': 'synthetic'}):
+            with self.subTest(value=bad), self.assertRaises(InvalidData):
+                validate_v2(dict(original, positions=[dict(original['positions'][0], effectiveLeverage=bad)]), 'Main')
+        legacy_position = dict(original['positions'][0]); legacy_position.pop('effectiveLeverage')
+        self.assertIsNone(validate_v2(dict(original, positions=[legacy_position]), 'Main')['positions'][0]['effectiveLeverage'])
+
     def test_model_direction_and_saved_stops_flat_twins_and_opposing_positions(self):
         self.assertEqual('FLAT', self.dashboard()[1]['strategies'][0]['signal'])
         self.state(self.accounts[0], dict(self.open_trade(), sl=98))

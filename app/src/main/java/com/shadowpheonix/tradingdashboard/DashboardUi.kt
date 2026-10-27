@@ -100,7 +100,8 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
                  alertsEnabled: Boolean = true, onAlertsChange: (Boolean) -> Unit = {}, alertStatus: List<Pair<String, String>> = emptyList(),
                  alertHistory: Map<String, List<DashboardAlert>> = emptyMap(),
                  connectionNotifications: Map<String, Boolean> = emptyMap(),
-                 onConnectionNotificationsChange: (String, Boolean) -> Unit = { _, _ -> }) {
+                 onConnectionNotificationsChange: (String, Boolean) -> Unit = { _, _ -> },
+                 showChangelog: Boolean = false, onDismissChangelog: () -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
     val inbox by vm.alertInbox.route.collectAsStateWithLifecycle()
     val savedScreens = rememberSaveableStateHolder()
@@ -114,7 +115,8 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
         onDispose { }
     }
     DashboardTheme(state.appearance) {
-        AppUpdatePrompt(updateState, onUpdateInstall, onUpdateLater)
+        if (showChangelog) AppChangelogDialog(onDismissChangelog)
+        else AppUpdatePrompt(updateState, onUpdateInstall, onUpdateLater)
         if (inbox != null) {
             AlertInboxPage(state.connections, alertHistory, inbox!!, vm.alertInbox::back)
         } else savedScreens.SaveableStateProvider("dashboard") {
@@ -836,7 +838,13 @@ internal fun PositionsCard(snapshot: DashboardSnapshot) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text("Combined size · USD", color = Muted, fontSize = 11.sp)
-                                    Text(money(positionNotionalUsd(position)), style = Numeric, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(buildAnnotatedString {
+                                        append(money(positionNotionalUsd(position)))
+                                        position.effectiveLeverage?.let {
+                                            withStyle(SpanStyle(color = Muted, fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium)) { append(" (${number(it, 1)}x)") }
+                                        }
+                                    }, style = Numeric, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                                 }
                                 Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.End,
                                     verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -874,7 +882,7 @@ internal fun PositionsCard(snapshot: DashboardSnapshot) {
             KeyValue("Size-weighted entry", number(position.entryPrice))
             KeyValue("Binance mark", number(position.markPrice))
             KeyValue("Open P&L", money(position.unrealizedPnl, true, snapshot.currency))
-            KeyValue("Saved leverage (weighted)", "${number(position.leverage, 2)}×")
+            KeyValue("Combined leverage", position.effectiveLeverage?.let { "${number(it, 1)}x" } ?: "—")
             KeyValue("Saved stop prices", if (position.stopPrices.isEmpty()) number(position.stopPrice)
                 else position.stopPrices.joinToString(" / ") { number(it) })
             Text("Saved bot state, not an exchange order check. Home shows the midpoint when wallet stops differ by at most 0.1%; exact stops are listed here. Larger differences stay separate. If any saved stop is unavailable, the combined stop remains —.", color = Muted, fontSize = 11.sp)

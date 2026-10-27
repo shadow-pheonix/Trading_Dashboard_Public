@@ -20,7 +20,8 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   USD before leverage and all-wallet capital: saved entry equity for active
   wallets plus sampled current equity for flat wallets. Missing values remain
   unavailable. See the [calculation contract](docs/API-v2.md#live-btc-and-open-returns).
-- M1/M2/M3 combine Wallet A/B while keeping opposing directions visible.
+- M1/M2/M3 combine Wallet A/B while keeping opposing directions visible;
+  combined USD size shows leverage using the [Telegram trade-stats calculation](docs/API-v2.md#endpoints-and-model-projection), such as `$38,500.52 (4.0x)`.
 - Account balances adds each model's share within its wallet beside the dollar
   amount; see [wallet allocation percentages](docs/API-v2.md#demand-only-perpetual-balances).
 - Strategies shows each model's MACD line, signal EMA and histogram with tap/drag inspection.
@@ -38,9 +39,15 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   defines capital requirements and legacy estimates. Recorded equity is offered
   only if actual samples exist. Cash-flow-adjusted return, percentage equity
   drawdown and Sharpe require actual capital history.
-- Tap an active trade to see saved weighted leverage and a shared recorded stop.
+- Tap an active trade to see combined leverage and a shared recorded stop.
   These details do not verify live exchange orders.
 - Settings saves Light, Dark or Use device setting without changing login keys.
+- The first opening after an update shows a scrollable **What's new** popup after
+  unlocking, grouped into New features, Improvements and Bug fixes; empty categories
+  are hidden. Dismissing acknowledges that version across all instances. Fresh
+  installs skip it. Bundled offline notes live in
+  [AppChangelog.kt](app/src/main/java/com/shadowpheonix/tradingdashboard/AppChangelog.kt)
+  and are updated for each release.
 - Each saved connection has a bell to mute or enable its [chat-style notifications](docs/ALERTS.md#android).
 - Settings can enable or disable [Android fingerprint or screen-lock authentication](#app-unlock); existing installs keep it enabled.
 - Source, period and All models/M1/M2/M3 filters appear in Analytics and Trades.

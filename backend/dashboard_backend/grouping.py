@@ -165,12 +165,21 @@ def model_projection(instance, histories, accounts, positions, strategies):
             marks = [p['markPrice'] for p in group]
             pnls = [p['unrealizedPnl'] for p in group]
             stops = {p['stopPrice'] for p in group}
+            # Same calculation as Telegram Current Trade Stats: combined entry
+            # notional / combined invested capital, rather than averaging leverage.
+            capitals = [p.get('_investedCapital') for p in group]
+            capital = sum(capitals) if all(c is not None for c in capitals) else None
+            effective_leverage = (sum(p['size'] * p['entryPrice'] for p in group) / capital
+                                  if capital is not None and capital > 0 else None)
+            if effective_leverage is not None and not 0 < effective_leverage <= 1e20:
+                effective_leverage = None
             model_positions.append({'id': model + '-' + symbol + '-' + side, 'accountId': model,
                 'symbol': symbol, 'side': side, 'size': size,
                 'entryPrice': sum(p['entryPrice'] * p['size'] for p in group) / size,
                 'markPrice': marks[0] if all(m is not None and m == marks[0] for m in marks) else None,
                 'unrealizedPnl': sum(pnls) if all(p is not None for p in pnls) else None,
                 'leverage': sum(p['leverage'] * p['size'] for p in group) / size,
+                'effectiveLeverage': effective_leverage,
                 'stopPrice': next(iter(stops)) if len(stops) == 1 else None,
                 'stopPrices': sorted(stops) if all(s is not None and s > 0 for s in stops) else []})
         evaluations = [s for s in strategies if s['id'] in ids]
@@ -190,7 +199,8 @@ def model_projection(instance, histories, accounts, positions, strategies):
 def validate_v2(value, label):
     # Share the strict allowlist and numeric/privacy checks with the immutable v1 contract.
     projected = {k: v for k, v in value.items() if k not in ("openPerformance", "btcTicker", "normalizedEquity")}
-    projected['positions'] = [{k: v for k, v in p.items() if k != 'stopPrices'} for p in value.get('positions', [])]
+    projected['positions'] = [{k: v for k, v in p.items() if k not in ('stopPrices', 'effectiveLeverage')}
+                              for p in value.get('positions', [])]
     checked = snapshot(projected, MODELS, label)
     for original, position in zip(value.get('positions', []), checked['positions']):
         stops = original.get('stopPrices', [])
@@ -199,6 +209,10 @@ def validate_v2(value, label):
                 or stops and position.get('stopPrice') is not None and stops != [position['stopPrice']]):
             raise InvalidData()
         position['stopPrices'] = list(stops)
+        effective_leverage = number(original.get('effectiveLeverage'), True)
+        if effective_leverage is not None and effective_leverage <= 0:
+            raise InvalidData()
+        position['effectiveLeverage'] = effective_leverage
     checked['schemaVersion'] = 2
     checked['selectedModel'] = checked.pop('selectedAccount')
     equity = value.get('normalizedEquity')

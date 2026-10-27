@@ -42,7 +42,13 @@ remain separate; differing saved stops are listed individually. Missing mark pri
 P&L unavailable; saved flat models have zero open P&L. A model with no configured
 accounts has no positions, zero open P&L, and unavailable balance.
 Home shows entry notional (`size × size-weighted entryPrice`) as combined USD
-size and replaces the mark cell with saved stop prices. Position details retain
+size with optional `effectiveLeverage` in parentheses, such as `$38,500.52 (4.0x)`.
+This uses Telegram Current Trade Stats' calculation: combined entry notional
+divided by the sum of each leg's saved `pos_size_quote / leverage`. It uses
+saved bot sizes rather than querying live exchange positions. Missing capital
+in any leg leaves this field null and hides the suffix; older servers omit it.
+The existing size-weighted `leverage` field remains unchanged. Home replaces
+the mark cell with saved stop prices. Position details retain
 BTC size, mark and leverage and add USD size. The optional v2 `stopPrices` array
 contains sorted distinct positive stops only when every grouped wallet has one.
 A shared `stopPrice` remains null when they differ, preserving older clients;

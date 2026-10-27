@@ -26,6 +26,25 @@ class PortfolioPresentationTest {
         assertEquals("LONG + SHORT", positionDirection(listOf(short, long)))
     }
 
+    @Test fun tradeStatsLeverageRoundTripsAndOlderServersRemainSupported() {
+        val position = Position("m1", "M1", "BTCUSDT", "LONG", 4.0, 110.0, null, null, 5.0)
+        assertNull(dashboardJson.decodeFromString<Position>(dashboardJson.encodeToString(position)).effectiveLeverage)
+        val combined = position.copy(effectiveLeverage = 4.4)
+        assertEquals(combined, dashboardJson.decodeFromString<Position>(dashboardJson.encodeToString(combined)))
+        assertEquals(440.0, positionNotionalUsd(combined)!!, 0.0)
+        val snapshot = DashboardSnapshot(instance = "Main", generatedAt = 1000, live = false,
+            metrics = Metrics(), period = "All",
+            dataSource = "bot_files_binance", positions = listOf(combined),
+            accounts = listOf(Account("M1", "M1"), Account("M2", "M2"), Account("M3", "M3")))
+        validateSnapshot(snapshot, "All", "all")
+        validateSnapshot(snapshot.copy(positions = listOf(position)), "All", "all")
+        for (invalid in listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY, 1e21)) {
+            assertThrows(DashboardError::class.java) {
+                validateSnapshot(snapshot.copy(positions = listOf(position.copy(effectiveLeverage = invalid))), "All", "all")
+            }
+        }
+    }
+
     @Test fun originalEquityReturnsAcceptProfitLossAndZeroAndRoundTrip() {
         listOf(200.0, 100.0, 150.0, 0.0).forEach { equity ->
             val pnl = equity - 150.0

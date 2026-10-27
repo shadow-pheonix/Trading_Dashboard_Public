@@ -6,8 +6,11 @@ credentials into the dashboard. Telegram stays active during verification.
 
 The reviewed notification change writes scrubbed text, time, a random event ID
 and an increasing sequence to `dashboard_alerts.sqlite` before Telegram sending
-or queueing. Temporary messages, command replies, direct sends, risk edits and
-photo captions are included. Continuous pinned portfolio updates are excluded.
+or queueing. Automatic messages, direct alerts and risk edits are included.
+With the Telegram-menu fix deployed in the bot, user-requested command replies,
+confirmation prompts and chart captions stay in Telegram only; existing APKs
+need no rebuild. Automatic missed-entry approval alerts remain included.
+Continuous pinned portfolio updates are excluded.
 The app's existing Analytics charts provide chart rendering; PNG attachments
 and Telegram buttons are not copied. Telegram commands remain Telegram commands;
 the app does not expose trading controls. Captured evaluation outcomes supply

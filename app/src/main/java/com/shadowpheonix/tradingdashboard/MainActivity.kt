@@ -52,6 +52,8 @@ class MainActivity : FragmentActivity() {
     }
     private val lock: AppLockViewModel by viewModels()
     private val updates: AppUpdateViewModel by viewModels()
+    private var changelogStore: ChangelogStore? = null
+    private var showChangelog by mutableStateOf(false)
     private val installPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (packageManager.canRequestPackageInstalls()) installUpdate() else updates.permissionDenied()
     }
@@ -71,6 +73,11 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        changelogStore = runCatching { ChangelogStore(this) }.getOrNull()
+        showChangelog = runCatching {
+            val installed = packageManager.getPackageInfo(packageName, 0)
+            changelogStore?.shouldShow(BuildConfig.VERSION_CODE, installed.firstInstallTime, installed.lastUpdateTime) == true
+        }.getOrDefault(false)
         alertStore = AlertStore(this)
         alertsEnabled = alertStore.enabled()
         handleAlertIntent(intent)
@@ -158,9 +165,15 @@ class MainActivity : FragmentActivity() {
             if (state.unlocked) DashboardApp(dashboard, lockEnabled, lockError, ::changeAppLock,
                 updateState, updates::check, ::installUpdate, updates::later,
                 alertsEnabled, ::changeAlerts, alertStatus, alertHistory,
-                connectionNotifications, ::changeConnectionNotifications)
+                connectionNotifications, ::changeConnectionNotifications,
+                showChangelog = showChangelog, onDismissChangelog = ::dismissChangelog)
             else AppLockedScreen(state, appearance, ::authenticate, ::configureScreenLock)
         }
+    }
+
+    private fun dismissChangelog() {
+        changelogStore?.acknowledge(BuildConfig.VERSION_CODE)
+        showChangelog = false
     }
 
     private fun notificationPermissionGranted() = Build.VERSION.SDK_INT < 33 ||

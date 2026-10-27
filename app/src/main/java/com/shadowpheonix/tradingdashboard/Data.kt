@@ -101,6 +101,7 @@ data class Position(
     val size: Double, val entryPrice: Double, val markPrice: Double?,
     val unrealizedPnl: Double?, val leverage: Double, val stopPrice: Double? = null,
     val stopPrices: List<Double> = emptyList(),
+    val effectiveLeverage: Double? = null,
 )
 
 @Serializable

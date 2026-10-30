@@ -179,7 +179,11 @@ def main():
                         assert body['openPerformance']['entryEquityUsd'] == 1100
                         assert abs(body['openPerformance']['entryEquityReturnPct'] - 20 / 1100 * 100) < 1e-6
                         assert body['openPerformance']['usesIdleBalances']
-                        assert body['openPerformance']['idleBalanceSampledAt'] == balance['sampledAt']
+                        idle_sampled = body['openPerformance']['idleBalanceSampledAt']
+                        # The flat wallet is sampled later in this fixture. The total
+                        # balance reports the oldest sample across *all* wallets.
+                        assert balance['sampledAt'] < idle_sampled <= balance['generatedAt']
+                        assert balance['attemptedAt'] <= idle_sampled <= body['generatedAt']
                     assert all(t['accountId'] in ['M1','M2','M3'] for t in body['trades'])
                     stream.send('unexpected command')
                     try:

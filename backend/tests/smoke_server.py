@@ -1,4 +1,5 @@
 """Test-only real ASGI server with synthetic prices; never connects to an exchange."""
+import asyncio
 import sys
 import time
 import uvicorn
@@ -28,6 +29,22 @@ class SyntheticPrices:
         return {"symbol": symbol, "price": 111, "change24hPct": 2.5, "updatedAt": int(time.time() * 1000) - 1000}
 
 
+class SyntheticBalances(Balances):
+    """Give the flat wallet a demonstrably later sample than the active wallet."""
+    async def _fetch(self, instance):
+        self.active_sampled = asyncio.Event()
+        return await super()._fetch(instance)
+
+    async def _account(self, account):
+        if account.id == 'b':
+            await self.active_sampled.wait()
+            await asyncio.sleep(0.02)
+        sample = await super()._account(account)
+        if account.id == 'a':
+            self.active_sampled.set()
+        return sample
+
+
 class SyntheticIndicators:
     async def chart(self, instance, live=False):
         value = await self.get(instance)
@@ -54,7 +71,7 @@ class SyntheticIndicators:
 if __name__ == '__main__':
     config, database, port = sys.argv[1:]
     uvicorn.run(Application(load_config(config), Store(database), prices=SyntheticPrices(),
-        balances=Balances(query=lambda _: 100.0), indicators=SyntheticIndicators()),
+        balances=SyntheticBalances(query=lambda _: 100.0), indicators=SyntheticIndicators()),
         host='127.0.0.1', port=int(port), access_log=False, log_level='critical',
         proxy_headers=False, limit_concurrency=32, ws='websockets-sansio',
         ws_max_size=1024, ws_max_queue=1, ws_per_message_deflate=False, **WS_KEEPALIVE)

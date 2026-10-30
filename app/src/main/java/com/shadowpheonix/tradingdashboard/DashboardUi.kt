@@ -104,6 +104,8 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
                  showChangelog: Boolean = false, onDismissChangelog: () -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
     val inbox by vm.alertInbox.route.collectAsStateWithLifecycle()
+    var chartModel by rememberSaveable(state.active?.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(state.page) { if (state.page != Page.Strategies) chartModel = null }
     val savedScreens = rememberSaveableStateHolder()
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
     val dark = state.appearance.isDark(systemDark)
@@ -119,6 +121,8 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
         else AppUpdatePrompt(updateState, onUpdateInstall, onUpdateLater)
         if (inbox != null) {
             AlertInboxPage(state.connections, alertHistory, inbox!!, vm.alertInbox::back)
+        } else if (chartModel != null && state.page == Page.Strategies && state.active != null) {
+            ModelChartScreen(state, chartModel!!, { chartModel = null }, vm::refreshChart)
         } else savedScreens.SaveableStateProvider("dashboard") {
             Scaffold(containerColor = Backdrop, bottomBar = {
                 Surface(color = CardSurface, shadowElevation = 0.dp) {
@@ -144,7 +148,7 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
                     }
                     when {
                         state.page == Page.Settings || state.active == null -> SettingsScreen(state, vm, appLockEnabled, appLockError, onAppLockChange, updateState, onUpdateCheck, onUpdateInstall, alertsEnabled, onAlertsChange, alertStatus, { vm.alertInbox.open() }, connectionNotifications, onConnectionNotificationsChange)
-                        else -> ContentScreen(state, vm)
+                        else -> ContentScreen(state, vm) { chartModel = it }
                     }
                 }
             }
@@ -266,7 +270,7 @@ private fun Filters(state: DashboardState, vm: DashboardViewModel) {
 }
 
 @Composable
-private fun ContentScreen(state: DashboardState, vm: DashboardViewModel) {
+private fun ContentScreen(state: DashboardState, vm: DashboardViewModel, onModelChart: (String) -> Unit) {
     val snapshot = state.snapshot
     val balanceSample = scopedBalanceSample(state)
     var tradeDetail by remember { mutableStateOf<Trade?>(null) }
@@ -280,7 +284,7 @@ private fun ContentScreen(state: DashboardState, vm: DashboardViewModel) {
                 else "${snapshot.trades.size} trades in this period") }
             item { Filters(state, vm) }
         }
-        if (state.page == Page.Strategies) strategyItems(state)
+        if (state.page == Page.Strategies) strategyItems(state, onModelChart)
         else if (snapshot == null) {
             if (state.page == Page.Dashboard) item(key = homeSections[0]) {
                 PortfolioOverviewCard(state)
@@ -345,19 +349,24 @@ private fun ContentScreen(state: DashboardState, vm: DashboardViewModel) {
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.strategyItems(state: DashboardState) {
+private fun androidx.compose.foundation.lazy.LazyListScope.strategyItems(state: DashboardState, onModelChart: (String) -> Unit) {
     item { SectionHeading("Strategies", if (state.macd?.source == "bot_spot_closed")
         "MACD · Bot-calculated spot candles" else "MACD · 15-minute spot candles") }
     if (state.macdCached) item { Text("Saved chart · refreshing", color = Muted, fontSize = 12.sp) }
     state.macdError?.let { message -> item { Text(message, color = Red, fontSize = 12.sp) } }
+    item(key = "spot-candles") { CandlePreview(state.macd, state.now, state.macdCached) }
     items(listOf("M1", "M2", "M3"), key = { "strategy-$it" }) { model ->
         val strategy = state.snapshot?.strategies?.find { it.id == model }
         Panel {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button,
+                onClickLabel = "Open ${strategyLabel(model)} full-screen chart") { onModelChart(model) },
+                verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.ShowChart, null, tint = Blue)
                 Spacer(Modifier.width(12.dp))
                 Text(strategyLabel(model), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Badge(strategy?.status ?: "Model", Blue)
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Outlined.OpenInFull, contentDescription = null, tint = Blue, modifier = Modifier.size(17.dp))
             }
             MacdChart(state.macd?.models?.find { it.id == model },
                 stale = state.macdError != null || macdIsStale(state.macd, state.now),

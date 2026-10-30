@@ -24,8 +24,13 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   combined USD size shows leverage using the [Telegram trade-stats calculation](docs/API-v2.md#endpoints-and-model-projection), such as `$38,500.52 (4.0x)`.
 - Account balances adds each model's share within its wallet beside the dollar
   amount; see [wallet allocation percentages](docs/API-v2.md#demand-only-perpetual-balances).
-- Strategies shows each model's MACD line, signal EMA and histogram with tap/drag inspection.
-  See the [closed-candle indicator contract](docs/API-v2.md#macd-strategy-charts).
+- Strategies shows a shared static 15-minute candle preview above the model
+  MACD cards. Tap a model header to open its full-screen chart with 70% candles,
+  30% MACD, pinch zoom, pan and synchronized crosshair inspection. Recorded open
+  trades show entry arrows and current stop-loss rays; see
+  [trade overlays](docs/API-v2.md#entry-and-stop-loss-overlays).
+  See [candle charts](docs/API-v2.md#candle-preview-and-full-screen-charts) and the
+  [closed-candle indicator contract](docs/API-v2.md#macd-strategy-charts).
 - Analytics holds realized P&L, monthly results and statistics from combined closed trades:
   profit factor, average/best/worst trade, win/loss/breakeven counts, logged fees
   and Max drawdown as USD (percentage), supplied by the backend's Edge Monitor

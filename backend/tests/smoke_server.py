@@ -28,6 +28,13 @@ class SyntheticPrices:
 
 
 class SyntheticIndicators:
+    async def chart(self, instance):
+        value = await self.get(instance)
+        value.update(candleStatus='ok', candleSampledAt=value['generatedAt'],
+            candles=[dict(timestamp=p['timestamp'], open=80000, high=80100, low=79900, close=80050)
+                     for p in value['models'][0]['points']])
+        return value
+
     async def get(self, instance):
         now = int(time.time() * 1000)
         target = now // INTERVAL * INTERVAL - INTERVAL

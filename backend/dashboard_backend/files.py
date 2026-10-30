@@ -191,6 +191,53 @@ class BotFiles:
         self.cache(account.history_path, marker, output)
         return output, True
 
+    def chart_annotations(self, instance, now):
+        """Allowlisted open entries/stops per wallet, never inferred from indicators."""
+        output, complete = [], True
+        with self.lock:
+            for account in instance.accounts:
+                if account.symbol != 'BTCUSDT' or account.strategy not in ('M1', 'M2', 'M3'):
+                    continue
+                try:
+                    raw, info = read_stable(account.state_path, 1024 * 1024)
+                    value = decode(raw)
+                    if not isinstance(value, dict) or 'trade' not in value or not 0 < info.st_mtime_ns // 1000000 <= now:
+                        raise InvalidData()
+                    trade = value['trade']
+                    if trade is None:
+                        continue
+                    if not isinstance(trade, dict):
+                        raise InvalidData()
+                    # A filled position awaiting protection still has a real entry.
+                    # Approval prompts, skipped signals and closed records do not.
+                    if trade.get('status') not in (None, 'ACTIVE', 'PENDING_PROTECTION'):
+                        continue
+                    if trade.get('side') not in ('LONG', 'SHORT') or number(trade.get('sz')) <= 0:
+                        raise InvalidData()
+                    opened = entry_timestamp(trade.get('entry_time'))
+                    if opened is None or opened > now:
+                        raise InvalidData()
+                    entry = positive_optional(trade.get('entry_execution_price')) or number(trade.get('entry_price'))
+                    if entry <= 0:
+                        raise InvalidData()
+                    history, available = self.history(account)
+                    if not available:
+                        raise InvalidData()
+                    if any(t['openedAt'] == opened and t['side'] == trade['side'] for t in history):
+                        continue  # Closing CSV/state writes can straddle a read.
+                    stop = positive_optional(trade.get('sl'))
+                    protection = ('unavailable' if stop is None else
+                                  'pending' if trade.get('status') == 'PENDING_PROTECTION' or trade.get('sl_confirmed') is False else
+                                  'confirmed' if trade.get('sl_confirmed') is True else 'saved')
+                    output.append(dict(id=hashlib.sha256((account.id + ':' + str(opened) + ':' + trade['side']).encode()).hexdigest()[:24],
+                        modelId=account.strategy, wallet=account.wallet, side=trade['side'],
+                        enteredAt=opened, entryPrice=entry, stopPrice=stop, stopState=protection))
+                except (OSError, InvalidData, ValueError, TypeError, csv.Error):
+                    complete = False  # No raw path, state, exception or credential is returned.
+        if len(output) > 6:
+            return dict(tradeAnnotations=[], annotationStatus='unavailable', annotationSampledAt=None)
+        return dict(tradeAnnotations=output, annotationStatus='ok' if complete else 'partial', annotationSampledAt=now)
+
     def build(self, instance, period, selected, prices, now, mode="real", version=1, idle_balances=None, clock=None):
         with self.lock:
             if mode == "edge":

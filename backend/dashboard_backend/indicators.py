@@ -85,8 +85,21 @@ def macd_models(candles):
     return models
 
 
+def chart_time(value, now):
+    """Recheck the final timestamp after independent chart components finish reading."""
+    value['generatedAt'] = now
+    target = now // INTERVAL * INTERVAL - INTERVAL
+    if value.get('status') == 'ok' and value['models'][0]['points'][-1]['timestamp'] != target:
+        value['status'] = 'stale'
+    if value.get('candleStatus') == 'ok' and value['candles'][-1]['timestamp'] != target:
+        value['candleStatus'] = 'stale'
+    return value
+
+
 class Indicators:
-    def __init__(self, clock=lambda: int(time.time() * 1000), fetch=fetch_candles):
+    def __init__(self, clock=lambda: int(time.time() * 1000), fetch=fetch_candles, candle_fetch=fetch_candles):
+        from .candles import CandleSeries
+        self.price_candles = CandleSeries(clock, candle_fetch)
         self.clock, self.fetch = clock, fetch
         self.candles = []
         self.pending_candles = []  # Validated seed progress, never exposed as a partial chart.
@@ -96,6 +109,11 @@ class Indicators:
         self.retry_at = 0
         self.failed = False
         self.bot_charts = {}
+
+    async def chart(self, instance):
+        value = await self.get(instance)
+        value.update(self.price_candles.get())
+        return chart_time(value, self.clock())
 
     async def get(self, instance):
         now = self.clock()

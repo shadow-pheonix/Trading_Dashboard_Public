@@ -6,6 +6,76 @@ import org.junit.Test
 import java.nio.file.Files
 
 class MacdCacheTest {
+    @Test fun currentTradeMarkersAreNeverRestoredFromDiskAndCloseClearsThemWithoutMovingCandles() = runBlocking {
+        val dir = Files.createTempDirectory("trade-markers-test").toFile()
+        val base = snapshot()
+        val trade = ChartTradeAnnotation("a".repeat(24), "M1", "A", "LONG", base.models.first().points[20].timestamp,
+            80000.0, 79000.0, "confirmed")
+        val open = base.copy(tradeAnnotations = listOf(trade), annotationStatus = "ok", annotationSampledAt = time)
+        val cache = MacdCacheStore(dir) { time }
+        val values = mutableListOf<MacdSnapshot>()
+        var requests = 0
+        val session = MacdSession(this, { requests++; if (requests == 1) open else base.copy(annotationStatus = "ok", annotationSampledAt = time) },
+            { values.add(it) }, { fail(it) }, pause = { if (requests >= 2) awaitCancellation() else yield() }, cache = cache)
+        try {
+            cache.save(connection, open)
+            val saved = cache.load(connection)!!
+            assertTrue(saved.tradeAnnotations.isEmpty()); assertNull(saved.annotationSampledAt)
+            assertFalse(dir.listFiles()!!.single().readText().contains(trade.id))
+            session.select(connection, true)
+            withTimeout(3000) { while (requests < 2 || values.lastOrNull()?.annotationStatus != "ok") delay(5) }
+            assertTrue(values.any { it.tradeAnnotations == listOf(trade) })
+            assertTrue(values.last().tradeAnnotations.isEmpty())
+            assertEquals(base.models, values.last().models)
+        } finally { session.close(); dir.deleteRecursively() }
+    }
+
+    @Test fun priceOnlyRefreshPreservesCompleteMacdAndPersistsTheNewCandles() = runBlocking {
+        val saved = snapshot()
+        val candles = saved.models.first().points.map { PriceCandle(it.timestamp, 100.0, 110.0, 90.0, 105.0) }
+        val values = mutableListOf<MacdSnapshot>(); val writes = mutableListOf<MacdSnapshot>()
+        val cache = object : MacdCache {
+            override suspend fun load(connection: Connection) = saved
+            override suspend fun save(connection: Connection, value: MacdSnapshot) { writes.add(value) }
+            override suspend fun forget(id: String) { }
+        }
+        val incoming = saved.copy(source = "bot_spot_closed", status = "loading", models = emptyList(), sampledAt = null,
+            candles = candles, candleStatus = "ok", candleSampledAt = time)
+        val session = MacdSession(this, { incoming }, { values.add(it) }, { fail(it) },
+            pause = { awaitCancellation() }, cache = cache)
+        try {
+            session.select(connection, true); repeat(20) { yield() }
+            val merged = values.last()
+            assertEquals(saved.models, merged.models)
+            assertEquals(saved.source, merged.source)
+            assertEquals("stale", merged.status)
+            assertEquals(candles, merged.candles)
+            assertEquals(listOf(merged), writes)
+            validateMacd(merged)
+        } finally { session.close() }
+    }
+
+    @Test fun missingPricesDoNotEraseSavedCandlesWhenMacdRefreshes() = runBlocking {
+        val original = snapshot()
+        val saved = original.copy(candles = original.models.first().points.map {
+            PriceCandle(it.timestamp, 100.0, 110.0, 90.0, 105.0)
+        }, candleStatus = "ok", candleSampledAt = time)
+        val values = mutableListOf<MacdSnapshot>()
+        val cache = object : MacdCache {
+            override suspend fun load(connection: Connection) = saved
+            override suspend fun save(connection: Connection, value: MacdSnapshot) { }
+            override suspend fun forget(id: String) { }
+        }
+        val session = MacdSession(this, { original }, { values.add(it) }, { fail(it) },
+            pause = { awaitCancellation() }, cache = cache)
+        try {
+            session.select(connection, true); repeat(20) { yield() }
+            assertEquals(saved.candles, values.last().candles)
+            assertEquals("stale", values.last().candleStatus)
+            validateMacd(values.last())
+        } finally { session.close() }
+    }
+
     private val connection = Connection("main", "Main", DASHBOARD_URL, "x".repeat(43))
     private val time = 1800000000000L
     private fun snapshot(): MacdSnapshot {

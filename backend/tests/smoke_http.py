@@ -91,6 +91,16 @@ def main():
             assert call('/v2/dashboard?view=macd', False)[0] == 401
             indicator_status, indicator_chart = call('/v2/dashboard?view=macd')
             assert indicator_status == 200 and indicator_chart['status'] == 'ok'
+            assert call('/v2/dashboard?view=chart', False)[0] == 401
+            chart_status, chart = call('/v2/dashboard?view=chart')
+            assert chart_status == 200 and chart['candleStatus'] == 'ok'
+            assert len(chart['candles']) == 96 and chart['candles'][-1]['close'] == 80050
+            assert chart['annotationStatus'] == 'ok'
+            assert chart['tradeAnnotations'][0]['side'] == 'LONG'
+            assert chart['tradeAnnotations'][0]['entryPrice'] == 100
+            assert chart['tradeAnnotations'][0]['stopPrice'] == 90
+            assert chart['tradeAnnotations'][0]['wallet'] == 'A'
+            assert [c['timestamp'] for c in chart['candles']] == [p['timestamp'] for p in chart['models'][0]['points']]
             assert indicator_chart['source'] == 'binance_spot_closed'
             assert [m['id'] for m in indicator_chart['models']] == ['M1', 'M2', 'M3']
             assert all(len(m['points']) == 96 for m in indicator_chart['models'])

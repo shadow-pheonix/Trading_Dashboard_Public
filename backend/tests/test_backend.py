@@ -82,6 +82,28 @@ class BackendCase(unittest.TestCase):
         self.app.indicators.get = AsyncMock(side_effect=revoked)
         self.assertEqual(self.request('/v2/dashboard', 'view=macd')[0], 401)
 
+    def test_chart_view_authentication_exact_query_and_no_wallet_reads(self):
+        from unittest.mock import AsyncMock
+        self.app.indicators.chart = AsyncMock(return_value={'candles': [], 'candleStatus': 'loading'})
+        self.assertEqual(self.request('/v2/dashboard', 'view=chart', token=None)[0], 401)
+        self.app.indicators.chart.assert_not_called()
+        self.assertEqual(self.request('/v2/dashboard', 'view=chart')[0], 200)
+        self.app.indicators.chart.assert_awaited_once_with(self.main)
+        self.assertEqual(self.prices.acquisitions, 0)
+        self.assertEqual(self.app.balances.tasks, {})
+        for query in ('view=chart&mode=edge', 'view=chart&model=M1', 'view=chart&view=chart'):
+            self.assertEqual(self.request('/v2/dashboard', query)[0], 400)
+        self.assertEqual(self.request('/v1/dashboard', 'view=chart')[0], 400)
+
+    def test_chart_view_rechecks_key_after_async_work(self):
+        from unittest.mock import AsyncMock
+        async def revoked(_):
+            with contextlib.closing(sqlite3.connect(self.store.path)) as db, db:
+                db.execute('DELETE FROM dashboard_keys')
+            return {'candles': []}
+        self.app.indicators.chart = AsyncMock(side_effect=revoked)
+        self.assertEqual(self.request('/v2/dashboard', 'view=chart')[0], 401)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

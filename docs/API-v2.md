@@ -117,6 +117,82 @@ not erase a complete chart. Credential changes invalidate the cache, forgetting
 an instance deletes it, and no raw dashboard key is serialized into chart files.
 First use without a saved chart still requires the server's initial calculation.
 
+### Candle preview and full-screen charts
+
+Authenticated `GET /v2/dashboard?view=chart` adds `candles`, `candleStatus` and
+`candleSampledAt` to the indicator document. It accepts only that exact query;
+the MACD-only view remains unchanged and does not fetch OHLC. Each of the 96
+ordered candles contains `timestamp`, `open`, `high`, `low` and `close` from public
+BTCUSDT spot klines. Times are aligned 15-minute opening times for fully closed
+candles. Positive finite prices and low/open/close/high ordering are validated;
+gaps, duplicates, partial or incomplete windows reject the update.
+
+The demand-only OHLC cache is shared across instances. One bounded request seeds
+the latest 96 candles, and requests for a new closed-candle boundary refresh that
+window. It reuses the public provider timeout, byte limit and rate-limit policy
+above. Concurrent viewers share a task. Failure retains the complete window with
+`stale` status and a 30-second cooldown; there is no idle collector, balance query
+or bot write. Candle freshness is independent of the MACD document's status.
+Bot MACD remains the captured bot evaluation; OHLC is labelled closed spot data.
+
+The static preview fits candles at about 5 dp per slot with sparse axes. Opening
+a model hides the app header, navigation and system bars. The chart workspace
+uses a shared timeline with 70% of its plot height for price and 30% for MACD,
+excluding top controls and the shared time axis. It starts with the latest 60
+candles, zooms between 12 and 96 and pans within the retained 24-hour window.
+Pinch zoom anchors at the gesture centroid. Tap or hold and drag to inspect;
+the crosshair button switches inspection back to panning. Zoom buttons, double
+tap and Return to latest provide explicit controls; Back returns to Strategies.
+Both panels select the same timestamp. Missing MACD points leave gaps, rather
+than being attached to another candle. Panned history stays anchored when the
+window rolls forward; the latest view follows new candles.
+
+The phone's existing private per-connection cache now retains both series.
+Partial responses keep the other complete series visibly stale; loading and
+failures do not replace it with invented values. Older servers returning 400 for
+the chart view fall back to MACD-only requests, leaving candles unavailable.
+The original foreground/lock/cancellation rules apply to the full-screen view.
+Phone gesture handling, appearance and system-bar restoration require device
+verification in addition to the viewport, alignment and 70/30 geometry tests.
+
+### Entry and stop-loss overlays
+
+The authenticated chart view also adds `tradeAnnotations`, `annotationStatus`
+(`ok`, `partial` or `unavailable`) and `annotationSampledAt`. Each annotation
+allowlists an opaque `id`, `modelId`, `wallet` (empty for a single wallet, or
+`A`/`B`), `side`, `enteredAt`, `entryPrice`, `stopPrice` and `stopState`.
+The MACD-only view does not read these records. No paths, credentials, order IDs
+or raw state documents are returned.
+
+Only currently open, recorded filled trades qualify, including filled trades
+awaiting protection. Unknown entry times, approval requests, skipped trades and
+closed trades do not create arrows. Known-time manual entries qualify. Saved
+execution price takes precedence over the position's saved entry price. The
+backend cross-checks closed history to suppress a closing trade whose state
+file has not yet been cleared. Unreadable accounts are omitted with partial
+status; values are never inferred from file modification time or signal time.
+
+Mint upward arrows mark long entries; rose downward arrows mark short entries.
+The recorded entry time selects its 15-minute candle. A dashed rose stop ray
+starts at that candle's centre and extends right to a price badge. The current
+saved stop moves without moving the entry anchor; profit-protecting stops are
+valid. `stopState` is `confirmed`, `saved`, `pending` or `unavailable`; pending
+protection is labelled `SL?`, and missing stops produce no invented line.
+These are saved bot records, not independent exchange-order verification.
+
+Wallets retain separate entry prices and stops. Same-candle arrows of the same
+direction can share a label; selecting that candle reveals individual fills.
+Equal-price stops share a badge but retain their own starting candles. Nearby
+badges are spaced with leaders while keeping the actual price lines exact.
+An entry before the visible window has a clipped continuation ray, without a
+false entry arrow at the left edge. A still-forming entry candle receives its
+marker after closing, consistent with the chart's closed-candle contract.
+
+Annotations are not persisted or restored with the phone's candle/MACD cache.
+Refresh failures, cached-only views and samples older than 90 seconds hide them.
+Every response replaces annotations independently of the price/indicator series,
+so closing a trade or losing its source cannot retain an old active stop line.
+
 ## Live BTC and open returns
 
 Real snapshots add optional `btcTicker` and `openPerformance` objects; missing

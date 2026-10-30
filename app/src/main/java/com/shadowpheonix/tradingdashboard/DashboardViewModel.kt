@@ -151,6 +151,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun selectMacd(refresh: Boolean = false) {
         macdSession.select(mutable.value.active, visible && mutable.value.page == Page.Strategies && alertInbox.route.value == null, refresh)
     }
+    fun refreshChart() { selectMacd(refresh = true) }
     private fun selectQuery() {
         val current = mutable.value
         session.select(current.query, current.followLive)

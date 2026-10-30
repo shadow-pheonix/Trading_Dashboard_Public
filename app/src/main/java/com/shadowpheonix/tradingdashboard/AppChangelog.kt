@@ -27,9 +27,13 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
     ChangelogChange(ChangelogCategory.NewFeatures,
-        "See categorized update highlights the first time you open an updated app."),
+        "Strategies now has a shared 15-minute BTC candle preview above the model cards, with readable spacing and price labels."),
+    ChangelogChange(ChangelogCategory.NewFeatures,
+        "Tap a model to open a full-screen chart: 70% candles above 30% MACD, with pinch zoom, pan, crosshair inspection and a return-to-latest control."),
+    ChangelogChange(ChangelogCategory.NewFeatures,
+        "Open trades show direction arrows on their entry candles and stop-loss lines starting at the same candle, with wallet and price labels. Pending protection is marked SL?."),
     ChangelogChange(ChangelogCategory.Improvements,
-        "Combined USD position size now includes leverage, using the same calculation as Telegram’s Current Trade Stats for one or two wallets."),
+        "Candle and MACD panels share one timeline. Saved data remains available while refreshing, and stale or missing values are clearly labelled."),
 )
 
 @Composable

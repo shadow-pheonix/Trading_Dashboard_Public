@@ -9,7 +9,7 @@ from .files import BotFiles
 from .market import BinancePrices
 from .balances import Balances
 from .alerts import Alerts
-from .indicators import Indicators
+from .indicators import Indicators, chart_time
 from .grouping import MODELS
 
 
@@ -125,8 +125,12 @@ class Application:
         if status is not None:
             return status, resolved
         instance, token, period, account, mode = resolved
-        if scope["path"] == "/v2/dashboard" and scope.get("query_string") == b"view=macd":
-            value = await self.indicators.get(instance)
+        if scope["path"] == "/v2/dashboard" and scope.get("query_string") in (b"view=macd", b"view=chart"):
+            value = await (self.indicators.chart(instance) if scope.get("query_string") == b"view=chart"
+                           else self.indicators.get(instance))
+            if scope.get("query_string") == b"view=chart":
+                value.update(await asyncio.to_thread(self.files.chart_annotations, instance, self.clock()))
+                chart_time(value, self.clock())
             if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
                 return 401, {"error": "Access denied."}
             return 200, value
@@ -185,7 +189,7 @@ class Application:
                 raise InvalidData()
             params = parse_qs(query.decode("ascii"), keep_blank_values=True,
                               strict_parsing=True, max_num_fields=3)
-            indicator_view = scope["path"] == "/v2/dashboard" and query == b"view=macd"
+            indicator_view = scope["path"] == "/v2/dashboard" and query in (b"view=macd", b"view=chart")
             allowed = ({"view"} if indicator_view else
                        {"after"} if scope["path"] in ("/v2/alerts", "/v2/alerts/live") else
                        set() if scope["path"] == "/v2/balances" else {"period", selector, "mode"})

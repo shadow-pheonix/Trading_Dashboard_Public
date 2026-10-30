@@ -143,7 +143,12 @@ class DashboardApi {
     }
 
     suspend fun macd(connection: Connection): MacdSnapshot {
-        val request = macdRequest(connection)
+        return try { fetchMacd(chartRequest(connection), allowLegacy = true) }
+        catch (_: LegacyChartEndpoint) { fetchMacd(macdRequest(connection)) }
+    }
+
+    private class LegacyChartEndpoint : Exception()
+    private suspend fun fetchMacd(request: Request, allowLegacy: Boolean = false): MacdSnapshot {
         return suspendCancellableCoroutine { continuation ->
             val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
@@ -152,6 +157,11 @@ class DashboardApi {
                     if (continuation.isActive) continuation.resumeWithException(DashboardError("MACD data unavailable."))
                 }
                 override fun onResponse(call: Call, response: Response) {
+                    if (allowLegacy && response.code == 400) {
+                        response.close()
+                        if (continuation.isActive) continuation.resumeWithException(LegacyChartEndpoint())
+                        return
+                    }
                     try {
                         val value = response.use { dashboardJson.decodeFromString<MacdSnapshot>(readBody(it)) }
                         validateMacd(value)
@@ -263,6 +273,10 @@ fun balanceRequest(connection: Connection): Request = dashboardRequest(connectio
 
 fun macdRequest(connection: Connection): Request = dashboardRequest(connection, "All", "all")
     .let { it.newBuilder().url(it.url.newBuilder().query(null).addQueryParameter("view", "macd").build()).build() }
+
+fun chartRequest(connection: Connection): Request = macdRequest(connection).let {
+    it.newBuilder().url(it.url.newBuilder().setQueryParameter("view", "chart").build()).build()
+}
 
 fun validateBalances(value: BalanceSnapshot) {
     val original = value.originalEquity

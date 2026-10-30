@@ -354,7 +354,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.strategyItems(state: 
         "MACD · Bot-calculated spot candles" else "MACD · 15-minute spot candles") }
     if (state.macdCached) item { Text("Saved chart · refreshing", color = Muted, fontSize = 12.sp) }
     state.macdError?.let { message -> item { Text(message, color = Red, fontSize = 12.sp) } }
-    item(key = "spot-candles") { CandlePreview(state.macd, state.now, state.macdCached) }
+    item(key = "spot-candles") { CandlePreview(state.macd, state.now, state.macdCached, state.macdError != null) }
     items(listOf("M1", "M2", "M3"), key = { "strategy-$it" }) { model ->
         val strategy = state.snapshot?.strategies?.find { it.id == model }
         Panel {

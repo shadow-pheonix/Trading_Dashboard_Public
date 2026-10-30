@@ -7,7 +7,7 @@ import kotlin.math.ceil
 internal data class ChartViewport(val first: Double, val count: Double) {
     fun bounded(total: Int): ChartViewport {
         val available = total.coerceAtLeast(1).toDouble()
-        val shown = count.takeIf { it.isFinite() }?.coerceIn(minOf(12.0, available), available) ?: minOf(60.0, available)
+        val shown = count.takeIf { it.isFinite() }?.coerceIn(minOf(12.0, available), minOf(96.0,available)) ?: minOf(60.0, available)
         return ChartViewport(first.takeIf { it.isFinite() }?.coerceIn(0.0, available - shown) ?: 0.0, shown)
     }
 
@@ -15,7 +15,7 @@ internal data class ChartViewport(val first: Double, val count: Double) {
         val current = bounded(total)
         if (!zoom.isFinite() || zoom <= 0 || !panFraction.isFinite() || !anchorFraction.isFinite()) return current
         val anchor = anchorFraction.coerceIn(0.0, 1.0)
-        val shown = (current.count / zoom).coerceIn(minOf(12.0, total.coerceAtLeast(1).toDouble()), total.coerceAtLeast(1).toDouble())
+        val shown = (current.count / zoom).coerceIn(minOf(12.0, total.coerceAtLeast(1).toDouble()), minOf(96.0,total.coerceAtLeast(1).toDouble()))
         return ChartViewport(current.first + current.count * anchor - shown * anchor - panFraction * shown, shown).bounded(total)
     }
 
@@ -32,7 +32,8 @@ internal data class ChartViewport(val first: Double, val count: Double) {
 
     companion object {
         fun latest(total: Int, count: Double = 60.0): ChartViewport {
-            val shown = count.coerceAtMost(total.coerceAtLeast(1).toDouble())
+            val available = total.coerceAtLeast(1).toDouble()
+            val shown = count.coerceIn(minOf(12.0,available),minOf(96.0,available))
             return ChartViewport(total - shown, shown).bounded(total)
         }
     }

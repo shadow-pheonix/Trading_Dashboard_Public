@@ -27,13 +27,11 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
     ChangelogChange(ChangelogCategory.NewFeatures,
-        "Strategies now has a shared 15-minute BTC candle preview above the model cards, with readable spacing and price labels."),
-    ChangelogChange(ChangelogCategory.NewFeatures,
-        "Tap a model to open a full-screen chart: 70% candles above 30% MACD, with pinch zoom, pan, crosshair inspection and a return-to-latest control."),
-    ChangelogChange(ChangelogCategory.NewFeatures,
-        "Open trades show direction arrows on their entry candles and stop-loss lines starting at the same candle, with wallet and price labels. Pending protection is marked SL?."),
+        "The current 15-minute candle and its provisional MACD now update in the full-screen chart. Entry arrows and stop lines can appear on the forming candle."),
     ChangelogChange(ChangelogCategory.Improvements,
-        "Candle and MACD panels share one timeline. Saved data remains available while refreshing, and stale or missing values are clearly labelled."),
+        "Chart history now holds 256 candles. Pan through the longer history while keeping zoom between 12 and 96 candles on screen."),
+    ChangelogChange(ChangelogCategory.Improvements,
+        "Closed chart history remains available offline. Partial candles and live MACD expire when stale and are excluded from saved charts."),
 )
 
 @Composable

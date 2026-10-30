@@ -32,7 +32,7 @@ class MacdCacheStore(private val directory: File, private val now: () -> Long = 
             val saved = json.decodeFromString<SavedMacd>(path.readText())
             if (saved.scope != scope(connection)) return@withContext null
             validateMacd(saved.value)
-            saved.value.withoutTradeAnnotations().takeIf { (it.models.isNotEmpty() || it.candles.isNotEmpty()) && it.generatedAt <= now() + 60_000 }
+            saved.value.withoutTradeAnnotations().withoutLivePreview().takeIf { (it.models.isNotEmpty() || it.candles.isNotEmpty()) && it.generatedAt <= now() + 60_000 }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
     }
     override suspend fun save(connection: Connection, value: MacdSnapshot) = withContext(Dispatchers.IO) {
@@ -40,7 +40,7 @@ class MacdCacheStore(private val directory: File, private val now: () -> Long = 
         if (value.models.isEmpty() && value.candles.isEmpty() || value.generatedAt > now() + 60_000) return@withContext
         directory.mkdirs()
         // An offline price/indicator chart must never restore an apparently active stop.
-        val contents = json.encodeToString(SavedMacd(scope(connection), value.withoutTradeAnnotations()))
+        val contents = json.encodeToString(SavedMacd(scope(connection), value.withoutTradeAnnotations().withoutLivePreview()))
         require(contents.toByteArray().size <= 262144)
         val temporary = File.createTempFile("macd-", ".tmp", directory)
         try {

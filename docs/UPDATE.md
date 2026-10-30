@@ -180,6 +180,10 @@ equity setting; no model baseline is invented. Strategies must show MACD and
 signal EMA lines with histogram bars for M1(300), M2(450) and M3(600), using the
 [closed-candle chart contract](API-v2.md#macd-strategy-charts). Check tap/drag
 inspection, loading/stale states and both themes; Home retains position details.
+Verify the [extended full-screen chart](API-v2.md#live-candle-and-extended-macd):
+pan across 256 slots, keep zoom within 12–96, and check the forming candle and
+provisional MACD update together. Test rollover, refresh failure and offline
+reopening: partial bars must disappear instead of becoming saved final candles.
 After human activation of the bot export and its first complete evaluation,
 Strategies must say Bot-calculated spot candles; compare values with the bot's
 MACD State report. Export storage replaces one bounded row in the existing

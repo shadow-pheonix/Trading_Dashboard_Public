@@ -101,6 +101,14 @@ def main():
             assert chart['tradeAnnotations'][0]['stopPrice'] == 90
             assert chart['tradeAnnotations'][0]['wallet'] == 'A'
             assert [c['timestamp'] for c in chart['candles']] == [p['timestamp'] for p in chart['models'][0]['points']]
+            live_query='/v2/dashboard?view=chart&history=256&live=1'
+            assert call(live_query, False)[0] == 401
+            live_status, live_chart = call(live_query)
+            assert live_status == 200 and live_chart['chartWindow'] == 256
+            assert len(live_chart['candles']) == 255 and live_chart['formingCandle']['close'] == 80050
+            assert live_chart['chartMacdStatus'] == 'ok'
+            assert all(len(m['points']) == 255 for m in live_chart['chartModels'])
+            assert all(len(m['points']) == 1 for m in live_chart['formingModels'])
             assert indicator_chart['source'] == 'binance_spot_closed'
             assert [m['id'] for m in indicator_chart['models']] == ['M1', 'M2', 'M3']
             assert all(len(m['points']) == 96 for m in indicator_chart['models'])

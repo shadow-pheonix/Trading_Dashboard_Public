@@ -8,6 +8,7 @@ from dashboard_backend.balances import Balances
 from dashboard_backend.config import load_config
 from dashboard_backend.storage import Store
 from dashboard_backend.indicators import INTERVAL, HISTORY, macd_models
+from dashboard_backend.chart_indicators import extend_chart
 
 
 class SyntheticPrices:
@@ -28,8 +29,14 @@ class SyntheticPrices:
 
 
 class SyntheticIndicators:
-    async def chart(self, instance):
+    async def chart(self, instance, live=False):
         value = await self.get(instance)
+        if live:
+            current=value['generatedAt']//INTERVAL*INTERVAL
+            value.update(chartWindow=256,candleStatus='ok',candleSampledAt=value['generatedAt'],
+                candles=[dict(timestamp=current-i*INTERVAL,open=80000,high=80100,low=79900,close=80000) for i in range(255,0,-1)],
+                formingCandle=dict(timestamp=current,open=80000,high=80100,low=79900,close=80050))
+            return extend_chart(value)
         value.update(candleStatus='ok', candleSampledAt=value['generatedAt'],
             candles=[dict(timestamp=p['timestamp'], open=80000, high=80100, low=79900, close=80050)
                      for p in value['models'][0]['points']])

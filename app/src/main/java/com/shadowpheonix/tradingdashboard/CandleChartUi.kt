@@ -62,14 +62,15 @@ internal fun DrawScope.drawPriceCandles(candles: List<PriceCandle>, x: (Int) -> 
 }
 
 @Composable
-internal fun CandlePreview(value: MacdSnapshot?, now: Long, cached: Boolean) {
+internal fun CandlePreview(value: MacdSnapshot?, now: Long, cached: Boolean, failed: Boolean = false) {
     val colors = MaterialTheme.colorScheme
+    val live = formingIsFresh(value,now,cached,failed)
     Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp), color = colors.surface,
         border = androidx.compose.foundation.BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.5f))) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("BTC / USDT", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text("15m · Closed", color = colors.onSurfaceVariant, fontSize = 11.sp)
+                Text(if (live) "15m · Live" else "15m · Closed", color = colors.onSurfaceVariant, fontSize = 11.sp)
             }
             when {
                 value?.candles.isNullOrEmpty() -> Text(
@@ -77,9 +78,9 @@ internal fun CandlePreview(value: MacdSnapshot?, now: Long, cached: Boolean) {
                     else "Candles unavailable. Refresh to retry.", color = colors.onSurfaceVariant, fontSize = 12.sp,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp))
                 else -> {
-                    PricePreviewCanvas(value!!.candles)
-                    if (cached || candlesAreStale(value, now)) Text(
-                        if (candlesAreStale(value, now)) "Saved candles · Stale" else "Saved candles · Refreshing",
+                    PricePreviewCanvas(chartCandles(value,now,cached,failed))
+                    if (cached || failed || candlesAreStale(value, now)) Text(
+                        if (failed || candlesAreStale(value, now)) "Saved candles · Stale" else "Saved candles · Refreshing",
                         color = colors.onSurfaceVariant, fontSize = 11.sp)
                 }
             }
@@ -93,7 +94,7 @@ private fun PricePreviewCanvas(all: List<PriceCandle>) {
     val measurer = rememberTextMeasurer()
     val axisStyle = TextStyle(color = colors.onSurfaceVariant, fontSize = 10.sp)
     Canvas(Modifier.fillMaxWidth().height(174.dp).semantics {
-        contentDescription = "BTC USDT, 15-minute closed candles. Last close ${chartNumber(all.last().close, 2)} at ${chartTime(all.last().timestamp, "dd MMM HH:mm")}."
+        contentDescription = "BTC USDT, 15-minute candles. Last sampled price ${chartNumber(all.last().close, 2)} at ${chartTime(all.last().timestamp, "dd MMM HH:mm")}."
     }) {
         val right = (size.width - 64.dp.toPx()).coerceAtLeast(1f)
         val bottom = size.height - 24.dp.toPx(); val top = 10.dp.toPx()

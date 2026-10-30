@@ -304,7 +304,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             macdSession.close()
             balanceJob?.cancel(); connectionJob?.cancel()
             mutable.update { it.copy(connectionHealthy = false, refreshing = false,
-                balancesLoading = false, balancesStale = true) }
+                balancesLoading = false, balancesStale = true,
+                macd = it.macd?.withoutLivePreview()?.withoutTradeAnnotations()) }
         }
     }
 }

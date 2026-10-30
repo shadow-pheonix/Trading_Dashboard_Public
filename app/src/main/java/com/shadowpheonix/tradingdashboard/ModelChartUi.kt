@@ -52,8 +52,9 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
     val value = state.macd
-    val candles = value?.candles.orEmpty()
-    val model = value?.models?.find { it.id == modelId }
+    val candles = chartCandles(value, state.now, state.macdCached, state.macdError != null)
+    val model = chartModel(value, modelId, state.now, state.macdCached, state.macdError != null)
+    val live = formingIsFresh(value, state.now, state.macdCached, state.macdError != null)
     val times = candles.map { it.timestamp }.ifEmpty { model?.points?.map { it.timestamp }.orEmpty() }
     val aligned = remember(times, model) { alignedMacd(times, model) }
     val annotations = visibleTradeAnnotations(value, modelId, state.now, state.macdCached, state.macdError != null)
@@ -101,8 +102,12 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
                 }
             }
         }
-        val priceStatus = if (candlesAreStale(value, state.now)) "Candles stale / unavailable" else "Closed spot candles"
-        val macdStatus = (if (value?.source == "bot_spot_closed") "Bot MACD" else "Public MACD") +
+        val priceStatus = if (live) "Live candle · Forming" else if (candlesAreStale(value, state.now)) "Candles stale / unavailable" else "Closed spot candles"
+        val macdStatus = if (value?.chartWindow == 256) {
+            if (value.chartMacdStatus == "loading") "MACD loading…"
+            else if (live && value.formingModels.isNotEmpty()) "MACD preview · Provisional"
+            else if (value.chartMacdStatus == "failed") "Live MACD unavailable" else "MACD history · Live unavailable"
+        } else (if (value?.source == "bot_spot_closed") "Bot MACD" else "Public MACD") +
             if (macdIsStale(value, state.now)) " · Stale" else ""
         Text((if (state.macdError != null) "Refresh failed · Saved chart · " else if (state.macdCached) "Saved chart · " else "") + "$priceStatus · $macdStatus",
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), color = colors.onSurfaceVariant,
@@ -110,7 +115,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
         val annotationNote = when {
             annotations.any { it.stopState == "pending" } -> "Saved entries · SL? means protection pending"
             annotations.any { it.stopPrice == null } -> "Saved entries · SL unavailable"
-            annotations.any { it.enteredAt / MACD_INTERVAL * MACD_INTERVAL > (times.lastOrNull() ?: 0L) } -> "Entry candle still forming · Marker appears when closed"
+            annotations.any { it.enteredAt / MACD_INTERVAL * MACD_INTERVAL > (times.lastOrNull() ?: 0L) } -> "Entry candle unavailable · Waiting for price data"
             value?.annotationStatus == "partial" -> "Some trade markers unavailable"
             value?.annotationStatus != "ok" || state.macdCached || state.macdError != null ||
                 value.annotationSampledAt?.let { state.now < it || state.now - it > 90_000 } != false -> "Trade markers unavailable"
@@ -139,7 +144,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
                 Icon(Icons.Outlined.MyLocation, "Crosshair inspection", tint = if (inspecting) colors.primary else colors.onSurfaceVariant)
             }
             IconButton(onClick = { setWindow(viewport.zoomControl(times.size, 1 / 1.35)) },
-                enabled = times.isNotEmpty() && viewport.count < times.size) { Icon(Icons.Outlined.Remove, "Zoom out") }
+                enabled = times.isNotEmpty() && viewport.count < minOf(96,times.size)) { Icon(Icons.Outlined.Remove, "Zoom out") }
             IconButton(onClick = { setWindow(viewport.zoomControl(times.size, 1.35)) },
                 enabled = times.isNotEmpty() && viewport.count > minOf(12, times.size)) { Icon(Icons.Outlined.Add, "Zoom in") }
             IconButton(onClick = ::latest, enabled = times.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.LastPage, "Return to latest candles") }
@@ -189,7 +194,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
             }
         }
     Canvas(modifier.then(gestures).semantics {
-        contentDescription = "${model?.id ?: "Model"} chart. Candles above MACD in a 70 to 30 split. Pinch to zoom, drag to pan, hold or use crosshair to inspect. ${times.size} closed candles available."
+        contentDescription = "${model?.id ?: "Model"} chart. Candles above MACD in a 70 to 30 split. Pinch to zoom, drag to pan, hold or use crosshair to inspect. ${times.size} candles available, including a forming candle when live data is available."
     }) {
         val layout = chartPaneLayout(size.width, size.height, axisWidth, 28.dp.toPx())
         val right = layout.plotWidth

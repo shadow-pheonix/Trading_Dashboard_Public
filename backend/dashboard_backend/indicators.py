@@ -12,6 +12,7 @@ from .validation import InvalidData, integer, number
 INTERVAL = 900000
 HISTORY = 24999  # Bot's 25k spot buffer, excluding the open partial candle.
 DISPLAY = 96
+LIVE_CHART_QUERY = b'view=chart&history=256&live=1'
 SPANS = (("M1", 300, 900, 300), ("M2", 450, 1350, 450), ("M3", 600, 1800, 600))
 
 
@@ -93,13 +94,19 @@ def chart_time(value, now):
         value['status'] = 'stale'
     if value.get('candleStatus') == 'ok' and value['candles'][-1]['timestamp'] != target:
         value['candleStatus'] = 'stale'
+    if value.get('formingCandle') is not None and (value['formingCandle']['timestamp'] != target + INTERVAL or
+            not 0 <= now-value['candleSampledAt'] <= 15000):
+        value.update(formingCandle=None, formingModels=[], candleStatus='stale')
+        if value.get('chartModels'):
+            value['chartMacdStatus'] = 'stale'
     return value
 
 
 class Indicators:
     def __init__(self, clock=lambda: int(time.time() * 1000), fetch=fetch_candles, candle_fetch=fetch_candles):
-        from .candles import CandleSeries
+        from .candles import CandleSeries, LiveCandleSeries
         self.price_candles = CandleSeries(clock, candle_fetch)
+        self.live_candles = LiveCandleSeries(clock, candle_fetch)
         self.clock, self.fetch = clock, fetch
         self.candles = []
         self.pending_candles = []  # Validated seed progress, never exposed as a partial chart.
@@ -110,9 +117,16 @@ class Indicators:
         self.failed = False
         self.bot_charts = {}
 
-    async def chart(self, instance):
+    async def chart(self, instance, live=False):
         value = await self.get(instance)
-        value.update(self.price_candles.get())
+        series = self.live_candles if live else self.price_candles
+        value.update(series.get())
+        if live:
+            if series.task is not None and not series.task.done():
+                await asyncio.shield(series.task)
+                value.update(series.get())
+            from .chart_indicators import extend_chart
+            extend_chart(value)
         return chart_time(value, self.clock())
 
     async def get(self, instance):

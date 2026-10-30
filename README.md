@@ -26,7 +26,9 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   amount; see [wallet allocation percentages](docs/API-v2.md#demand-only-perpetual-balances).
 - Strategies shows a shared static 15-minute candle preview above the model
   MACD cards. Tap a model header to open its full-screen chart with 70% candles,
-  30% MACD, pinch zoom, pan and synchronized crosshair inspection. Recorded open
+  30% MACD, pinch zoom, pan and synchronized crosshair inspection. Extended history
+  includes a [forming candle and provisional MACD](docs/API-v2.md#live-candle-and-extended-macd).
+  Recorded open
   trades show entry arrows and current stop-loss rays; see
   [trade overlays](docs/API-v2.md#entry-and-stop-loss-overlays).
   See [candle charts](docs/API-v2.md#candle-preview-and-full-screen-charts) and the

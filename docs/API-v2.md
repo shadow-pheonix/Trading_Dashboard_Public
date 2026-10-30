@@ -119,7 +119,7 @@ First use without a saved chart still requires the server's initial calculation.
 
 ### Candle preview and full-screen charts
 
-Authenticated `GET /v2/dashboard?view=chart` adds `candles`, `candleStatus` and
+Legacy authenticated `GET /v2/dashboard?view=chart` adds `candles`, `candleStatus` and
 `candleSampledAt` to the indicator document. It accepts only that exact query;
 the MACD-only view remains unchanged and does not fetch OHLC. Each of the 96
 ordered candles contains `timestamp`, `open`, `high`, `low` and `close` from public
@@ -133,13 +133,14 @@ window. It reuses the public provider timeout, byte limit and rate-limit policy
 above. Concurrent viewers share a task. Failure retains the complete window with
 `stale` status and a 30-second cooldown; there is no idle collector, balance query
 or bot write. Candle freshness is independent of the MACD document's status.
-Bot MACD remains the captured bot evaluation; OHLC is labelled closed spot data.
+The legacy view keeps the captured bot evaluation and closed spot data. Current
+apps use the [extended live view](#live-candle-and-extended-macd).
 
 The static preview fits candles at about 5 dp per slot with sparse axes. Opening
 a model hides the app header, navigation and system bars. The chart workspace
 uses a shared timeline with 70% of its plot height for price and 30% for MACD,
 excluding top controls and the shared time axis. It starts with the latest 60
-candles, zooms between 12 and 96 and pans within the retained 24-hour window.
+candles, zooms between 12 and 96 and pans throughout the retained history.
 Pinch zoom anchors at the gesture centroid. Tap or hold and drag to inspect;
 the crosshair button switches inspection back to panning. Zoom buttons, double
 tap and Return to latest provide explicit controls; Back returns to Strategies.
@@ -147,13 +148,48 @@ Both panels select the same timestamp. Missing MACD points leave gaps, rather
 than being attached to another candle. Panned history stays anchored when the
 window rolls forward; the latest view follows new candles.
 
-The phone's existing private per-connection cache now retains both series.
+The phone's existing private per-connection cache retains both closed series.
 Partial responses keep the other complete series visibly stale; loading and
 failures do not replace it with invented values. Older servers returning 400 for
-the chart view fall back to MACD-only requests, leaving candles unavailable.
+the extended view fall back to the legacy chart, then to MACD-only requests if
+that is also unsupported. Old applications retain their original response shape.
 The original foreground/lock/cancellation rules apply to the full-screen view.
 Phone gesture handling, appearance and system-bar restoration require device
 verification in addition to the viewport, alignment and 70/30 geometry tests.
+
+### Live candle and extended MACD
+
+Current apps request the exact authenticated query
+`GET /v2/dashboard?view=chart&history=256&live=1`. It returns `chartWindow=256`,
+255 final `candles` and a separate `formingCandle`: 256 total slots, about 64
+hours of 15-minute history. Visible zoom remains 12–96 candles; panning reaches
+all retained history. The shared demand-only public spot cache refreshes on a
+five-second cadence and at candle rollover. Requests await its bounded in-flight refresh; cancellation
+by one viewer does not cancel other viewers' data. Failures use the existing
+30-second cooldown. There is no idle collector or bot write.
+
+`models` retains the exact 96 captured closed MACD points used by strategy cards.
+`chartModels` supplies 255 closed chart points; `formingModels` supplies one
+provisional point per model at the partial candle's timestamp. `chartMacdStatus`
+is `ok`, `stale`, `loading` or `failed`. The full-screen chart joins both panels
+by candle time. A missing live MACD leaves a gap instead of a fabricated value.
+
+The backend recovers fast/slow EMA state from two consecutive captured MACD
+values and their matching spot close. It runs the same recursive EMA equations
+backwards for older history and forwards for new closes and the partial sample.
+Captured overlapping points are preserved exactly, and reconstructed overlap
+must agree within 0.00001 for MACD and signal. A mismatch withholds the derived
+series. One missing final bar is bridged to accommodate the bot's deliberate
+evaluation delay; older seeds are rejected. Each partial update restarts from
+the closed seed, so ticks do not compound extra EMA steps. This is a display-only
+preview, labelled provisional, and does not change bot signals or execution.
+
+Partial data expires after 15 seconds or immediately at a candle rollover,
+refresh failure, cached-only view or background return without a fresh sample.
+It is excluded from the disk cache, so a partial bar never becomes a saved final
+candle. Closed price/MACD histories remain independently available through partial
+refreshes; missing matching timestamps leave gaps. Trade markers can appear on
+the live entry candle as soon as its fresh price data is available.
 
 ### Entry and stop-loss overlays
 
@@ -185,8 +221,8 @@ direction can share a label; selecting that candle reveals individual fills.
 Equal-price stops share a badge but retain their own starting candles. Nearby
 badges are spaced with leaders while keeping the actual price lines exact.
 An entry before the visible window has a clipped continuation ray, without a
-false entry arrow at the left edge. A still-forming entry candle receives its
-marker after closing, consistent with the chart's closed-candle contract.
+false entry arrow at the left edge. The live view can mark a forming entry candle;
+legacy closed-only views wait for that candle to close.
 
 Annotations are not persisted or restored with the phone's candle/MACD cache.
 Refresh failures, cached-only views and samples older than 90 seconds hide them.

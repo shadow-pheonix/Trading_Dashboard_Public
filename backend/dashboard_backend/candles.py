@@ -7,8 +7,8 @@ from .indicators import DISPLAY, INTERVAL, fetch_candles
 from .validation import InvalidData, integer, number
 
 
-def ohlc_page(rows, start, target):
-    if not isinstance(rows, list) or len(rows) != DISPLAY:
+def ohlc_page(rows, start, target, count=DISPLAY):
+    if not isinstance(rows, list) or len(rows) != count:
         raise InvalidData()
     candles = []
     for index, row in enumerate(rows):
@@ -62,3 +62,43 @@ class CandleSeries:
             self.failed = True
             self.retry_at = self.clock() + 30000
             # Keep the last complete window. No provider response/exception output.
+
+
+class LiveCandleSeries:
+    """255 final candles plus a separately identified partial candle; shared demand-only cache."""
+    def __init__(self, clock=lambda: int(time.time() * 1000), fetch=fetch_candles):
+        self.clock, self.fetch = clock, fetch
+        self.candles, self.forming, self.sampled_at = [], None, None
+        self.task, self.retry_at, self.failed = None, 0, False
+
+    def get(self):
+        now = self.clock()
+        current = now // INTERVAL * INTERVAL
+        fresh = (self.sampled_at is not None and 0 <= now-self.sampled_at < 5000 and
+                 self.forming is not None and self.forming['timestamp'] == current)
+        if not fresh and now >= self.retry_at and (self.task is None or self.task.done()):
+            self.task = asyncio.create_task(self._refresh(current))
+        if self.sampled_at is not None and self.sampled_at > now:
+            return dict(chartWindow=256, candles=[], candleStatus='loading', candleSampledAt=None, formingCandle=None)
+        refreshing = self.task is not None and not self.task.done()
+        # Never relabel a partial sample as a final candle after the boundary.
+        forming = self.forming if fresh else None
+        status = ('ok' if fresh else 'stale' if self.candles else
+                  'loading' if refreshing else 'failed' if self.failed else 'loading')
+        return dict(chartWindow=256, candles=copy.deepcopy(self.candles), candleStatus=status,
+                    candleSampledAt=self.sampled_at, formingCandle=copy.deepcopy(forming))
+
+    async def _refresh(self, current):
+        try:
+            start = current - 255 * INTERVAL
+            rows = await asyncio.to_thread(self.fetch, start, current + INTERVAL - 1)
+            candles = ohlc_page(rows, start, current, count=256)
+            sampled = self.clock()
+            if sampled // INTERVAL * INTERVAL != current:
+                self.retry_at = 0
+                return  # Boundary rollover is not a provider failure; the next viewer request can retry immediately.
+            self.candles, self.forming, self.sampled_at = candles[:-1], candles[-1], sampled
+            self.retry_at, self.failed = 0, False
+        except Exception:
+            self.failed = True
+            self.retry_at = self.clock() + 30000

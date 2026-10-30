@@ -9,7 +9,7 @@ from .files import BotFiles
 from .market import BinancePrices
 from .balances import Balances
 from .alerts import Alerts
-from .indicators import Indicators, chart_time
+from .indicators import Indicators, chart_time, LIVE_CHART_QUERY
 from .grouping import MODELS
 
 
@@ -125,10 +125,11 @@ class Application:
         if status is not None:
             return status, resolved
         instance, token, period, account, mode = resolved
-        if scope["path"] == "/v2/dashboard" and scope.get("query_string") in (b"view=macd", b"view=chart"):
-            value = await (self.indicators.chart(instance) if scope.get("query_string") == b"view=chart"
-                           else self.indicators.get(instance))
-            if scope.get("query_string") == b"view=chart":
+        query = scope.get('query_string')
+        if scope["path"] == "/v2/dashboard" and query in (b"view=macd", b"view=chart", LIVE_CHART_QUERY):
+            value = await (self.indicators.chart(instance, live=True) if query == LIVE_CHART_QUERY else
+                           self.indicators.chart(instance) if query == b'view=chart' else self.indicators.get(instance))
+            if query != b'view=macd':
                 value.update(await asyncio.to_thread(self.files.chart_annotations, instance, self.clock()))
                 chart_time(value, self.clock())
             if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
@@ -189,8 +190,9 @@ class Application:
                 raise InvalidData()
             params = parse_qs(query.decode("ascii"), keep_blank_values=True,
                               strict_parsing=True, max_num_fields=3)
-            indicator_view = scope["path"] == "/v2/dashboard" and query in (b"view=macd", b"view=chart")
-            allowed = ({"view"} if indicator_view else
+            indicator_view = scope["path"] == "/v2/dashboard" and query in (b"view=macd", b"view=chart", LIVE_CHART_QUERY)
+            allowed = ({"view", "history", "live"} if indicator_view and query == LIVE_CHART_QUERY else
+                       {"view"} if indicator_view else
                        {"after"} if scope["path"] in ("/v2/alerts", "/v2/alerts/live") else
                        set() if scope["path"] == "/v2/balances" else {"period", selector, "mode"})
             if "after" in allowed:

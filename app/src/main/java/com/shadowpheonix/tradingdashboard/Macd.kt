@@ -8,7 +8,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.cancelAndJoin
-import kotlin.math.abs
 
 const val MACD_INTERVAL = 900_000L
 
@@ -25,13 +24,17 @@ data class MacdSnapshot(val schemaVersion: Int, val instance: String, val genera
     val sampledAt: Long? = null, val models: List<MacdModel> = emptyList(),
     val candles: List<PriceCandle> = emptyList(), val candleStatus: String? = null,
     val candleSampledAt: Long? = null, val tradeAnnotations: List<ChartTradeAnnotation> = emptyList(),
-    val annotationStatus: String? = null, val annotationSampledAt: Long? = null)
+    val annotationStatus: String? = null, val annotationSampledAt: Long? = null,
+    val chartWindow: Int = 96, val formingCandle: PriceCandle? = null,
+    val chartModels: List<MacdModel> = emptyList(), val formingModels: List<MacdModel> = emptyList(),
+    val chartMacdStatus: String? = null)
 
 fun validateMacd(value: MacdSnapshot) {
     require(value.schemaVersion == 2 && value.instance.isNotBlank() && value.instance.length <= 240 &&
         value.generatedAt > 0 && value.source in setOf("binance_spot_closed", "bot_spot_closed") && value.symbol == "BTCUSDT" &&
         value.intervalMinutes == 15 && value.status in setOf("ok", "stale", "loading", "failed"))
     validatePriceCandles(value)
+    validateLiveChart(value)
     validateTradeAnnotations(value)
     if (value.models.isEmpty()) {
         require(value.status in setOf("loading", "failed") && value.sampledAt == null)
@@ -46,8 +49,7 @@ fun validateMacd(value: MacdSnapshot) {
         model.points.forEachIndexed { i, p ->
             require(p.timestamp > 0 && p.timestamp % MACD_INTERVAL == 0L &&
                 p.timestamp + MACD_INTERVAL <= value.generatedAt &&
-                listOf(p.macd, p.signal, p.histogram).all { it.isFinite() && abs(it) <= 1e20 } &&
-                abs(p.histogram - (p.macd - p.signal)) < 0.000001 &&
+                validMacdPoint(p) &&
                 (i == 0 || p.timestamp - model.points[i - 1].timestamp == MACD_INTERVAL))
         }
         require(model.points.map { it.timestamp } == value.models.first().points.map { it.timestamp })
@@ -63,7 +65,7 @@ fun validatePriceCandles(value: MacdSnapshot) {
         require(value.candleSampledAt == null)
         return
     }
-    require(value.candles.size == 96 && value.candleStatus in setOf("ok", "stale") &&
+    require(value.candles.size == (if (value.chartWindow == 256) 255 else 96) && value.candleStatus in setOf("ok", "stale") &&
         value.candleSampledAt != null && value.candleSampledAt in 1L..value.generatedAt)
     value.candles.forEachIndexed { index, candle ->
         require(candle.timestamp > 0 && candle.timestamp % MACD_INTERVAL == 0L &&
@@ -120,10 +122,15 @@ class MacdSession(private val scope: CoroutineScope,
                                 if (merged.models.isEmpty() && saved.models.isNotEmpty()) merged = merged.copy(
                                     models = saved.models, sampledAt = saved.sampledAt, source = saved.source, status = "stale")
                                 if (merged.candles.isEmpty() && saved.candles.isNotEmpty()) merged = merged.copy(
-                                    candles = saved.candles, candleSampledAt = saved.candleSampledAt, candleStatus = "stale")
+                                    candles = saved.candles, candleSampledAt = saved.candleSampledAt, candleStatus = "stale",
+                                    chartWindow = saved.chartWindow, formingCandle = null, chartModels = saved.chartModels,
+                                    formingModels = emptyList(), chartMacdStatus = if (saved.chartModels.isNotEmpty()) "stale" else saved.chartMacdStatus)
+                                if (merged.chartWindow == 256 && merged.chartModels.isEmpty() && saved.chartModels.isNotEmpty())
+                                    merged = merged.copy(chartModels=saved.chartModels, formingModels=emptyList(), chartMacdStatus="stale")
                             }
                             val changed = retained?.models != merged.models || retained?.status != merged.status || retained?.source != merged.source ||
-                                retained?.candles != merged.candles || retained?.candleStatus != merged.candleStatus
+                                retained?.candles != merged.candles || retained?.candleStatus != merged.candleStatus ||
+                                retained?.chartModels != merged.chartModels || retained?.chartWindow != merged.chartWindow
                             retained = merged
                             onValue(merged)
                             try { if (changed) cache?.save(connection, merged) }
@@ -133,7 +140,7 @@ class MacdSession(private val scope: CoroutineScope,
                     } else if (retained == null) onValue(value)
                     if (value.status == "loading") onRefreshing()
                     if (value.status == "failed") onError("MACD source unavailable · retrying. Saved indicators shown when available.")
-                    pause(if (value.status == "loading" || value.candleStatus == "loading") 2_000 else 30_000)
+                    pause(if (value.status == "loading" || value.candleStatus == "loading") 2_000 else if (value.chartWindow == 256) 5_000 else 30_000)
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { onError("MACD data unavailable. Refresh to retry."); pause(30_000) }
             }

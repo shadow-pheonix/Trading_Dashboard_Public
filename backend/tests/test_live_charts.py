@@ -19,14 +19,15 @@ def rows(start):
              start+(i+1)*INTERVAL-1,'1',1,'1','1','0'] for i in range(256)]
 
 
-def reference():
+def reference(corrections=None):
     # Independent full forward EMA reference, including its final partial sample.
     closes = [80000 + 300*math.sin(i/23) + i/20 for i in range(3000)]
     stamps = [CURRENT-(len(closes)-1-i)*INTERVAL for i in range(len(closes))]
     models = []
     for key, fast, slow, sig in SPANS:
+        inputs = [c + (corrections or {}).get(key, {}).get(i, 0) for i, c in enumerate(closes)]
         f = s = closes[0]; signal = 0.; points = []
-        for i,(stamp,close) in enumerate(zip(stamps,closes)):
+        for i,(stamp,close) in enumerate(zip(stamps,inputs)):
             if i:
                 f += (close-f)*2/(fast+1); s += (close-s)*2/(slow+1)
             m = f-s
@@ -123,11 +124,63 @@ class LiveChartsCase(unittest.IsolatedAsyncioTestCase):
         value['models']=[dict(m,points=copy.deepcopy(m['points'][-98:-2])) for m in truth]
         extend_chart(value);self.assertEqual(value['chartMacdStatus'],'ok')
         for m,t in zip(value['chartModels'],truth):self.assertAlmostEqual(m['points'][-1]['macd'],t['points'][-2]['macd'],delta=0.00001)
-        value,_=reference();value['candles'][-5]['close']+=100
+        value,_=reference()
+        for i,candle in enumerate(value['candles'][-96:]):
+            candle['close']+=100+i  # No independently matching price consensus remains.
         extend_chart(value);self.assertEqual(value['chartMacdStatus'],'failed')
         self.assertEqual(value['chartModels'],[]);self.assertEqual(value['formingModels'],[])
         value,_=reference();value['models'][0]['points'][-1]['timestamp']-=2*INTERVAL
         extend_chart(value);self.assertEqual(value['chartMacdStatus'],'failed')
+
+    def test_finalized_close_corrections_do_not_erase_bot_anchored_history(self):
+        # Bot minute samples can differ from later finalized exchange klines.
+        # Include the newest captured close: its public value cannot be the sole anchor.
+        corrections={key:{2912:14.01,2942:9.68,2998:0.25} for key,*_ in SPANS}
+        value,truth=reference(corrections)
+        original=copy.deepcopy(value['models'])
+        extend_chart(value)
+        self.assertEqual(value['chartMacdStatus'],'ok')
+        self.assertEqual(value['models'],original)
+        for model,partial,expected in zip(value['chartModels'],value['formingModels'],truth):
+            self.assertEqual(len(model['points']),255)
+            self.assertEqual(len(partial['points']),1)
+            self.assertEqual(model['points'][-96:],original[truth.index(expected)]['points'])
+            for point,correct in zip(model['points']+partial['points'],expected['points'][-256:]):
+                for field in ('macd','signal','histogram'):
+                    self.assertAlmostEqual(point[field],correct[field],delta=0.00001)
+
+    def test_price_consensus_requires_a_strict_majority_of_captured_deltas(self):
+        for count,expected in ((47,'ok'),(48,'failed')):
+            corrections={key:{i:10.0+i/100 for i in range(2910,2910+count)} for key,*_ in SPANS}
+            value,_=reference(corrections)
+            extend_chart(value)
+            self.assertEqual(value['chartMacdStatus'],expected)
+            if expected=='failed':
+                self.assertEqual(value['chartModels'],[])
+                self.assertEqual(value['formingModels'],[])
+
+    def test_individually_consistent_models_must_recover_the_same_input_closes(self):
+        value,_=reference({'M2':{2942:9.68}})
+        original=copy.deepcopy(value['models'])
+        extend_chart(value)
+        self.assertEqual(value['chartMacdStatus'],'failed')
+        self.assertEqual(value['chartModels'],[])
+        self.assertEqual(value['formingModels'],[])
+        self.assertEqual(value['models'],original)
+
+    def test_inconsistent_signal_or_gapped_capture_cannot_seed_an_extended_chart(self):
+        for corruption in ('signal','gap'):
+            value,_=reference()
+            point=value['models'][0]['points'][-5]
+            if corruption=='signal':
+                point['signal']+=0.1
+                point['histogram']=point['macd']-point['signal']
+            else:
+                point['timestamp']-=INTERVAL
+            extend_chart(value)
+            self.assertEqual(value['chartMacdStatus'],'failed')
+            self.assertEqual(value['chartModels'],[])
+            self.assertEqual(value['formingModels'],[])
 
     def test_final_timestamp_recheck_removes_expired_partial_without_corrupting_loading_metadata(self):
         value,_=reference();value.update(generatedAt=NOW,candleSampledAt=NOW)

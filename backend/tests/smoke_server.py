@@ -53,6 +53,9 @@ class SyntheticIndicators:
             value.update(chartWindow=256,candleStatus='ok',candleSampledAt=value['generatedAt'],
                 candles=[dict(timestamp=current-i*INTERVAL,open=80000,high=80100,low=79900,close=80000) for i in range(255,0,-1)],
                 formingCandle=dict(timestamp=current,open=80000,high=80100,low=79900,close=80050))
+            # Finalized price differs from the bot sample; full MACD must still
+            # survive this realistic case through the real authenticated HTTP path.
+            value['candles'][-5]['close']=80014.01
             return extend_chart(value)
         value.update(candleStatus='ok', candleSampledAt=value['generatedAt'],
             candles=[dict(timestamp=p['timestamp'], open=80000, high=80100, low=79900, close=80050)

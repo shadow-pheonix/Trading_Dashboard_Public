@@ -109,6 +109,11 @@ def main():
             assert live_chart['chartMacdStatus'] == 'ok'
             assert all(len(m['points']) == 255 for m in live_chart['chartModels'])
             assert all(len(m['points']) == 1 for m in live_chart['formingModels'])
+            assert live_chart['candles'][-5]['close'] == 80014.01
+            for extended,captured in zip(live_chart['chartModels'],live_chart['models']):
+                assert extended['points'][-96:] == captured['points']
+                assert all(abs(p['macd']) < 0.00001 and abs(p['signal']) < 0.00001 for p in extended['points'][:96])
+                assert [p['timestamp'] for p in extended['points']] == [c['timestamp'] for c in live_chart['candles']]
             assert indicator_chart['source'] == 'binance_spot_closed'
             assert [m['id'] for m in indicator_chart['models']] == ['M1', 'M2', 'M3']
             assert all(len(m['points']) == 96 for m in indicator_chart['models'])

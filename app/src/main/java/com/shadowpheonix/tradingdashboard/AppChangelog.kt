@@ -26,12 +26,10 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // Replace this list with the changes included in each release. The installed
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
-    ChangelogChange(ChangelogCategory.NewFeatures,
-        "The current 15-minute candle and its provisional MACD now update in the full-screen chart. Entry arrows and stop lines can appear on the forming candle."),
-    ChangelogChange(ChangelogCategory.Improvements,
-        "Chart history now holds 256 candles. Pan through the longer history while keeping zoom between 12 and 96 candles on screen."),
-    ChangelogChange(ChangelogCategory.Improvements,
-        "Closed chart history remains available offline. Partial candles and live MACD expire when stale and are excluded from saved charts."),
+    ChangelogChange(ChangelogCategory.BugFixes,
+        "Live chart refreshes no longer briefly hide the forming candle and trade markers, causing the chart to jump or change scale."),
+    ChangelogChange(ChangelogCategory.BugFixes,
+        "Full-screen MACD history can now extend across all 256 candle slots when finalized exchange closes differ from the bot's captured inputs."),
 )
 
 @Composable

@@ -174,15 +174,17 @@ provisional point per model at the partial candle's timestamp. `chartMacdStatus`
 is `ok`, `stale`, `loading` or `failed`. The full-screen chart joins both panels
 by candle time. A missing live MACD leaves a gap instead of a fabricated value.
 
-The backend recovers fast/slow EMA state from two consecutive captured MACD
-values and their matching spot close. It runs the same recursive EMA equations
-backwards for older history and forwards for new closes and the partial sample.
-Captured overlapping points are preserved exactly, and reconstructed overlap
-must agree within 0.00001 for MACD and signal. A mismatch withholds the derived
-series. One missing final bar is bridged to accommodate the bot's deliberate
-evaluation delay; older seeds are rejected. Each partial update restarts from
-the closed seed, so ticks do not compound extra EMA steps. This is a display-only
-preview, labelled provisional, and does not change bot signals or execution.
+The backend recovers EMA states and effective sampled closes from consecutive
+captured MACD values. Finalized exchange closes can differ from the bot's minute
+samples. A strict majority of recovered closes must match public spot prices
+within 0.0001; their median offset anchors the EMA price level. All three models
+must recover the same input closes within 0.0001, and consecutive signal values
+must obey the signal EMA within 0.00001. Failure withholds the derived series.
+Captured overlap is preserved exactly. Older history uses inverse EMA steps with
+public spot closes; new closes and the provisional sample use forward steps.
+One closed bar can bridge the bot's evaluation delay; older seeds are rejected.
+Ticks restart from the closed seed without compounding EMA steps. This derived
+display history and provisional preview never change bot signals or execution.
 
 Partial data expires after 15 seconds or immediately at a candle rollover,
 refresh failure, cached-only view or background return without a fresh sample.

@@ -26,6 +26,15 @@ class LiveChartTest {
         assertEquals(current,chartCandles(v,now).last().timestamp)
         assertEquals(256,chartModel(v,"M1",now)!!.points.size)
         assertEquals(current,chartModel(v,"M1",now)!!.points.last().timestamp)
+        val times=chartCandles(v,now).map { it.timestamp }
+        for (id in listOf("M1","M2","M3")) {
+            val aligned=alignedMacd(times,chartModel(v,id,now))
+            assertEquals(256,aligned.size)
+            assertTrue(aligned.all { it!=null })
+            assertEquals(times,aligned.map { it!!.timestamp })
+            // Panning to the oldest window must have MACD too, not just the saved 96-point tail.
+            assertTrue(aligned.take(96).all { it!=null })
+        }
         assertEquals(96,v.models.first().points.size) // Existing strategy-card values stay captured.
         assertEquals("view=chart&history=256&live=1",liveChartRequest(connection).url.encodedQuery)
         assertEquals("Bearer ${connection.accessKey}",liveChartRequest(connection).header("Authorization"))
@@ -114,5 +123,72 @@ class LiveChartTest {
             assertEquals(2,requests);assertEquals(listOf(5000L,5000L),pauses);assertEquals(1,writes)
             session.select(connection,false);repeat(5){yield()};assertEquals(2,requests)
         } finally { session.close() }
+    }
+
+    @Test fun refreshBetweenClockTicksKeepsLiveCandleStopsAndViewportStable() {
+        val trade=ChartTradeAnnotation("a".repeat(24),"M1","A","SHORT",current-MACD_INTERVAL,
+            100.0,180.0,"confirmed")
+        val initial=value().copy(tradeAnnotations=listOf(trade),annotationStatus="ok",annotationSampledAt=now)
+        var state=DashboardState(macd=initial,now=now)
+        var view=ChartViewport.latest(256)
+        val range=priceRange(initial.candles.takeLast(59)+initial.formingCandle!!,listOf(trade.stopPrice!!))
+        for (step in 1..3) {
+            // The one-second UI ticker has not reached the newly sampled response yet.
+            val sampledAt=now+step*5000+250
+            state=state.copy(now=sampledAt-250)
+            val response=initial.copy(generatedAt=sampledAt,candleSampledAt=sampledAt,annotationSampledAt=sampledAt)
+            validateMacd(response)
+            state=state.withMacdSnapshot(response,receivedAt=sampledAt+50)
+            val candles=chartCandles(state.macd,state.now,state.macdCached,state.macdError!=null)
+            val stops=visibleTradeAnnotations(state.macd,"M1",state.now,state.macdCached,state.macdError!=null)
+            assertEquals("Fresh response must not lose the forming candle before the next tick",256,candles.size)
+            assertEquals(listOf(trade),stops)
+            assertEquals(256,chartModel(state.macd,"M1",state.now)!!.points.size)
+            assertEquals(range,priceRange(candles.takeLast(60),stops.mapNotNull { it.stopPrice }))
+            view=view.rebased(initial.candles.first().timestamp,candles.first().timestamp,256,candles.size)
+            assertEquals(ChartViewport.latest(256),view)
+            assertEquals(sampledAt+50,state.now)
+        }
+    }
+
+    @Test fun receiptClockClearsRecoveryFlagsWithoutRelaxingFreshnessChecks() {
+        val v=value()
+        val before=DashboardState(now=now-500,macdCached=true,macdError="Refresh failed",page=Page.Strategies)
+        val received=before.withMacdSnapshot(v,receivedAt=now+50)
+        assertFalse(received.macdCached);assertNull(received.macdError)
+        assertEquals(Page.Strategies,received.page)
+        assertTrue(formingIsFresh(received.macd,received.now,received.macdCached,received.macdError!=null))
+        assertTrue(formingIsFresh(v,now+15_000))
+        val expired=received.copy(now=now+15_001)
+        assertFalse(formingIsFresh(expired.macd,expired.now))
+        val future=before.withMacdSnapshot(v,receivedAt=now-1)
+        assertFalse(formingIsFresh(future.macd,future.now))
+        assertFalse(formingIsFresh(v,received.now,cached=true))
+        assertFalse(formingIsFresh(v,received.now,failed=true))
+    }
+
+    @Test fun responseAcrossCandleRolloverPublishesTheNewTimelineBeforeTheNextUiTick() {
+        val boundary=current+MACD_INTERVAL
+        val old=value()
+        fun shift(m:MacdModel)=m.copy(points=m.points.map { it.copy(timestamp=it.timestamp+MACD_INTERVAL) })
+        val trade=ChartTradeAnnotation("b".repeat(24),"M1","B","LONG",boundary+25,101.0,90.0,"confirmed")
+        val response=old.copy(generatedAt=boundary+100,sampledAt=boundary+100,
+            candles=old.candles.map { it.copy(timestamp=it.timestamp+MACD_INTERVAL) },candleSampledAt=boundary+100,
+            models=old.models.map(::shift),chartModels=old.chartModels.map(::shift),formingModels=old.formingModels.map(::shift),
+            formingCandle=old.formingCandle!!.copy(timestamp=boundary),tradeAnnotations=listOf(trade),
+            annotationStatus="ok",annotationSampledAt=boundary+100)
+        validateMacd(response)
+        val received=DashboardState(macd=old,now=boundary-50).withMacdSnapshot(response,receivedAt=boundary+200)
+        val times=chartCandles(received.macd,received.now).map { it.timestamp }
+        assertEquals(256,times.size);assertEquals(boundary,times.last())
+        assertEquals(times,chartModel(received.macd,"M1",received.now)!!.points.map { it.timestamp })
+        val trades=visibleTradeAnnotations(received.macd,"M1",received.now,false,false)
+        assertEquals(listOf(trade),trades)
+        assertEquals(255,entryChartMarkers(trades,times).single().index)
+        val first=old.candles.first().timestamp
+        assertEquals(ChartViewport.latest(256),ChartViewport.latest(256).rebased(first,times.first(),256,256))
+        val panned=ChartViewport(20.0,60.0).rebased(first,times.first(),256,256)
+        assertEquals(ChartViewport(19.0,60.0),panned)
+        assertEquals(first+20*MACD_INTERVAL,times.first()+panned.first.toLong()*MACD_INTERVAL)
     }
 }

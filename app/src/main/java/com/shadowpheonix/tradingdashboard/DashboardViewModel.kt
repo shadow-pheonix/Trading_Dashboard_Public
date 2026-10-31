@@ -82,6 +82,10 @@ data class DashboardState(
     }
     fun withLiveSnapshot(value: DashboardSnapshot): DashboardState = copy(liveSnapshot = value,
         snapshot = if (query == liveQuery && followLive) value else snapshot).withBtcTicker(value.btcTicker)
+    internal fun withMacdSnapshot(value: MacdSnapshot, receivedAt: Long = System.currentTimeMillis()): DashboardState =
+        // Publish the receipt clock with the response: the one-second ticker can
+        // precede its sample time, briefly hiding the live candle and active stops.
+        copy(macd = value, macdError = null, macdCached = false, now = receivedAt)
     fun forQuery(): DashboardState = copy(snapshot =
         (if (query == liveQuery && followLive) liveSnapshot else filteredSnapshot)?.takeIf {
             it.period == query.period && it.selectedModel == query.model && it.historyMode == query.mode })
@@ -100,7 +104,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private var balanceGeneration = 0L
     private var visible = false
     private val macdSession = MacdSession(viewModelScope, api::macd,
-        onValue = { value -> mutable.update { it.copy(macd = value, macdError = null, macdCached = false) } },
+        onValue = { value -> mutable.update { it.withMacdSnapshot(value) } },
         onError = { error -> mutable.update { it.copy(macdError = error, macdCached = false) } },
         cache = MacdCacheStore(java.io.File(application.filesDir, "macd-charts")),
         onCached = { value -> mutable.update { it.copy(macd = value, macdError = null, macdCached = true) } },

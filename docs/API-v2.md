@@ -150,6 +150,11 @@ the crosshair button switches inspection back to panning. Both panels select
 the same timestamp; missing MACD points stay empty. Manual horizontal windows
 are anchored by timestamp in the first render after a data change. Follow latest
 resumes live scrolling; double-tapping the plot resets both axes and inspection.
+All full-screen charts open in portrait. The rotation button toggles landscape
+and portrait; leaving the chart restores portrait. The landscape layout compacts
+OHLC and status text while retaining the same candle history, model pane ratio,
+viewport, manual scales, inspection and overlay state across rotation. Android
+large-screen/windowing policy can override requested orientation.
 Back returns to Strategies. Dragging the bottom time axis adjusts horizontal
 zoom within the same 12–96 limits; its double-tap resumes following latest.
 
@@ -356,7 +361,14 @@ the paired P&L sequence. Backtest returns use successive rebuilt backtest
 capital. Live returns prefer recorded post-close `combined_equity` minus the
 trade's P&L; otherwise they use position quote size divided by leverage and
 model weight (M1 40%, M2 20%, M3 40%), matching the monitor's legacy convention.
-The curve compounds these fractional returns on $10,000. Regular CSV
+The curve compounds these fractional returns on $10,000. The reference is
+`edge_engine.py`: `_unified_return_series` and
+`_equity_and_drawdown_from_returns`. Analytics opens on Equity and displays
+percentage growth `(equity / baseEquity - 1) * 100`, starting at 0%. Convert
+only after compounding closed returns and applying any captured open mark;
+a +10% trade followed by -10% produces -1%. The wire values remain on the
+$10k scale. If capital is unavailable, the labelled Cumulative fallback remains
+available and never invents percentage returns. Regular CSV
 `final_capital`/`pos_size` map to edge `cum_capital`/`pos_size_quote`. Legacy
 estimates are labelled. Missing required capital leaves the curve unavailable;
 it does not create a zero return. YTD begins at January 1 UTC on the $10k base.

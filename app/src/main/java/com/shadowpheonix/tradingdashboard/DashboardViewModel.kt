@@ -148,6 +148,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun page(page: Page) {
+        AppDiagnostics.record(DiagnosticEvent.Screen, mapOf(DiagnosticField.Page to page.ordinal.toLong()))
         mutable.update { it.withPage(page) }
         selectQuery()
         selectMacd()

@@ -1,5 +1,8 @@
 package com.shadowpheonix.tradingdashboard
 
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.Canvas
@@ -20,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -55,11 +59,19 @@ private val chartScaleSaver = listSaver<ChartScale, Double>(
 internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: () -> Unit, onRefresh: () -> Unit) {
     BackHandler(onBack = onBack)
     val activity = LocalActivity.current
+    var landscape by rememberSaveable(state.active?.id, modelId) { mutableStateOf(false) }
+    val wide = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    LaunchedEffect(activity, landscape) {
+        activity?.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
     DisposableEffect(activity) {
         val controller = activity?.window?.let { WindowCompat.getInsetsController(it, it.decorView) }
         controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller?.hide(WindowInsetsCompat.Type.systemBars())
-        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
+        onDispose {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+            if (activity?.isChangingConfigurations == false) activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
     }
     val showMacd = modelId != BTC_CHART_ID
     val priceFraction = if (showMacd) 0.7f else 1f
@@ -73,12 +85,31 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
     val annotations = if (showOverlays) visibleTradeAnnotations(value, modelId, state.now, state.macdCached, state.macdError != null) else emptyList()
     val colors = MaterialTheme.colorScheme
     val scope = "${state.active?.id}:$modelId"
+    val logScope = remember(state.active?.id) { diagnosticScope(state.active?.id.orEmpty()).value }
     var window by rememberSaveable(scope, stateSaver = chartWindowSaver) { mutableStateOf(ChartWindow()) }
     var priceScale by rememberSaveable(scope, stateSaver = chartScaleSaver) { mutableStateOf(ChartScale()) }
     var macdScale by rememberSaveable(scope, stateSaver = chartScaleSaver) { mutableStateOf(ChartScale()) }
     var selectedTime by rememberSaveable(scope) { mutableStateOf<Long?>(null) }
     var inspecting by rememberSaveable(scope) { mutableStateOf(false) }
     val viewport = window.viewport(times)
+    LaunchedEffect(scope, landscape) {
+        AppDiagnostics.record(DiagnosticEvent.ChartOpened, mapOf(DiagnosticField.Scope to logScope, DiagnosticField.Model to diagnosticModel(modelId),
+            DiagnosticField.Landscape to if (landscape) 1L else 0L))
+    }
+    LaunchedEffect(scope, candles.size, aligned.count { it != null }, live, state.macdCached, state.macdError != null, times.firstOrNull(), times.lastOrNull()) {
+        AppDiagnostics.record(DiagnosticEvent.ChartData, mapOf(DiagnosticField.Scope to logScope, DiagnosticField.Candles to candles.size.toLong(),
+            DiagnosticField.Macd to aligned.count { it != null }.toLong(), DiagnosticField.Forming to if (live) 1L else 0L,
+            DiagnosticField.Cached to if (state.macdCached) 1L else 0L, DiagnosticField.Failed to if (state.macdError != null) 1L else 0L,
+            DiagnosticField.FirstTimestamp to (times.firstOrNull() ?: 0L), DiagnosticField.LastTimestamp to (times.lastOrNull() ?: 0L)))
+    }
+    LaunchedEffect(scope, viewport, priceScale, macdScale, inspecting) {
+        AppDiagnostics.record(DiagnosticEvent.ChartViewport, mapOf(DiagnosticField.Scope to logScope, DiagnosticField.Visible to viewport.count.toLong(),
+            DiagnosticField.FirstSlot to (viewport.first * 1000).toLong(),
+            DiagnosticField.Following to if (window.following) 1L else 0L,
+            DiagnosticField.ManualPrice to if (priceScale.automatic) 0L else 1L,
+            DiagnosticField.ManualMacd to if (macdScale.automatic) 0L else 1L,
+            DiagnosticField.Inspecting to if (inspecting) 1L else 0L), throttle = true)
+    }
     val priceRange = priceScale.range(chartPriceRange(candles, viewport))
     val indicatorRange = macdScale.range(chartMacdRange(aligned, viewport))
     fun setWindow(next: ChartViewport, follow: Boolean = window.following) { window = window.moved(next, times, follow) }
@@ -96,6 +127,12 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
                 Text("${state.active?.label.orEmpty()} · BTC / USDT · 15m", fontSize = 11.sp,
                     color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            if (wide) Text(listOf("O" to candle?.open, "H" to candle?.high, "L" to candle?.low, "C" to candle?.close)
+                .joinToString("  ") { (label, price) -> "$label ${price?.let { chartNumber(it, 2) } ?: "—"}" },
+                modifier = Modifier.weight(1.8f).padding(horizontal = 8.dp), fontSize = 10.sp, maxLines = 2)
+            IconButton(onClick = { landscape = !landscape }) {
+                Icon(Icons.Outlined.ScreenRotation, if (landscape) "Switch to portrait" else "Switch to landscape")
+            }
             if (!showMacd) IconToggleButton(checked = showOverlays, onCheckedChange = { showOverlays = it }) {
                 Icon(if (showOverlays) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                     if (showOverlays) "Hide all model entries and stop losses" else "Show all model entries and stop losses",
@@ -103,7 +140,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             }
             IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, "Refresh chart") }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp)) {
+        if (!wide) Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp)) {
             listOf("O" to candle?.open, "H" to candle?.high, "L" to candle?.low, "C" to candle?.close).forEach { (label, number) ->
                 Column(Modifier.weight(1f)) {
                     Text(label, fontSize = 9.sp, color = colors.onSurfaceVariant)
@@ -123,7 +160,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             if (macdIsStale(value, state.now)) " · Stale" else ""
         Text((if (state.macdError != null) "Refresh failed · Saved chart · " else if (state.macdCached) "Saved chart · " else "") + if (showMacd) "$priceStatus · $macdStatus" else priceStatus,
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), color = colors.onSurfaceVariant,
-            fontSize = 10.sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            fontSize = 10.sp, minLines = if (wide) 1 else 2, maxLines = if (wide) 1 else 2, overflow = TextOverflow.Ellipsis)
         val annotationNote = when {
             !showOverlays -> "All model entries and stop losses hidden"
             annotations.any { it.stopState == "pending" } -> "Saved entries · SL? means protection pending"
@@ -141,7 +178,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             (trade.stopPrice?.let { stopAnnotationLabel(listOf(trade)) } ?: "SL unavailable") }
                 .ifEmpty { "No recorded entry on selected candle" },
             Modifier.padding(horizontal = 14.dp), color = colors.onSurfaceVariant, fontSize = 10.sp,
-            minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            minLines = if (wide) 1 else 2, maxLines = if (wide) 1 else 2, overflow = TextOverflow.Ellipsis)
         if (times.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(if (value == null || value.status == "loading" || value.candleStatus == "loading") "Loading chart…"
@@ -152,7 +189,9 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
                 priceRange, indicatorRange, priceScale, macdScale, window.following, showMacd, priceFraction,
                 onWindow = ::setWindow, onInspect = { index -> selectedTime = times[index]; inspecting = true },
                 onPriceScale = { priceScale = it }, onMacdScale = { macdScale = it },
-                onLatest = ::latest, onReset = ::reset, modifier = Modifier.weight(1f).fillMaxWidth())
+                onLatest = ::latest, onReset = ::reset, modifier = Modifier.weight(1f).fillMaxWidth().onSizeChanged {
+                    AppDiagnostics.record(DiagnosticEvent.ChartLayout, mapOf(DiagnosticField.Scope to logScope, DiagnosticField.Width to it.width.toLong(), DiagnosticField.Height to it.height.toLong()))
+                })
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             IconToggleButton(checked = inspecting, onCheckedChange = {
@@ -170,7 +209,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
                 Text("Auto", color = if (priceScale.automatic && (!showMacd || macdScale.automatic)) colors.primary else colors.onSurfaceVariant)
             }
         }
-        Text(if (inspecting) "Drag to inspect · Tap crosshair to pan"
+        if (!wide) Text(if (inspecting) "Drag to inspect · Tap crosshair to pan"
             else if (!priceScale.automatic) "Drag chart freely · Drag price axis to scale\nDouble-tap price axis or tap Auto to reset"
             else "Drag to pan · Pinch to zoom · Hold to inspect\nDrag price axis to unlock · Drag time axis to zoom", color = colors.onSurfaceVariant,
             minLines = 2, maxLines = 2, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp))

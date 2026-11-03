@@ -475,13 +475,14 @@ private fun Metric(label: String, value: String, color: Color, icon: ImageVector
 
 @Composable
 internal fun CurveCard(snapshot: DashboardSnapshot) {
-    var requestedView by rememberSaveable { mutableStateOf(ChartView.Cumulative) }
+    var requestedView by rememberSaveable { mutableStateOf(defaultAnalyticsChart) }
     var menu by remember { mutableStateOf(false) }
     val choices = remember(snapshot) { availableChartViews(snapshot) }
     val view = requestedView.takeIf { it in choices } ?: ChartView.Cumulative
+    LaunchedEffect(view) { AppDiagnostics.record(DiagnosticEvent.AnalyticsView, mapOf(DiagnosticField.View to view.ordinal.toLong())) }
     val bars = view == ChartView.Daily || view == ChartView.Monthly
     val equity = view == ChartView.Equity || view == ChartView.NormalizedEquity
-    val series = remember(snapshot, view) { chartSeries(snapshot, view) }
+    val series = remember(snapshot, view) { displayedChartSeries(snapshot, view) }
     val recorded = series.recorded
     val samples = series.samples
     val live = series.captured
@@ -493,7 +494,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
         ChartView.Cumulative -> "P&L curve"
         ChartView.Daily -> "Daily P&L"
         ChartView.Monthly -> "Monthly P&L"
-        ChartView.NormalizedEquity -> "Equity · $10k base"
+        ChartView.NormalizedEquity -> "Equity return"
         ChartView.Equity -> "Recorded equity"
     }
     val positive = Green
@@ -524,7 +525,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
             val values = samples.map { it.value }
             val bounds = chartBounds(values, bars)
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(money(inspected.value, !equity, snapshot.currency), style = Numeric,
+                Text(if (view == ChartView.NormalizedEquity) equityPercent(inspected.value) else money(inspected.value, !equity, snapshot.currency), style = Numeric,
                     fontSize = 28.sp, fontWeight = FontWeight.Bold, color = if (equity) Ink else tone(inspected.value))
                 Text(sampleDate(inspected.timestamp), color = Muted, fontSize = 11.sp)
             }
@@ -541,7 +542,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
             }
             Row(Modifier.fillMaxWidth().height(210.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Canvas(Modifier.weight(1f).fillMaxHeight().semantics {
-                    contentDescription = "$title, ${sampleDate(inspected.timestamp)}, ${number(inspected.value)}"
+                    contentDescription = "$title, ${sampleDate(inspected.timestamp)}, ${if (view == ChartView.NormalizedEquity) equityPercent(inspected.value) else number(inspected.value)}"
                 }.pointerInput(samples) {
                     detectTapGestures { point ->
                         val inset = 6.dp.toPx()
@@ -595,9 +596,12 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
                     drawCircle(accent.copy(alpha = 0.15f), 9.dp.toPx(), Offset(x(index), y(inspected.value)))
                     drawCircle(accent, 4.dp.toPx(), Offset(x(index), y(inspected.value)))
                 }
-                Column(Modifier.width(44.dp).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween,
+                Column(Modifier.width(if (view == ChartView.NormalizedEquity) 56.dp else 44.dp).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End) {
-                    (0..3).forEach { n -> Text(chartAxisLabel(bounds.high - (bounds.high - bounds.low) * n / 3), color = Muted, fontSize = 9.sp) }
+                    (0..3).forEach { n ->
+                        val tick = bounds.high - (bounds.high - bounds.low) * n / 3
+                        Text(if (view == ChartView.NormalizedEquity) chartPercentAxisLabel(tick) else chartAxisLabel(tick), color = Muted, fontSize = 9.sp)
+                    }
                 }
             }
             if (samples.size > 1) Row(Modifier.fillMaxWidth().padding(end = 54.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -618,8 +622,8 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
             }
         }
         if (view == ChartView.NormalizedEquity) Text(
-            if (snapshot.normalizedEquity?.legacyCapitalEstimate == true) "$10k reference · includes estimated legacy capital"
-            else "$10k reference · compounded trade returns", color = Muted, fontSize = 10.sp)
+            if (snapshot.normalizedEquity?.legacyCapitalEstimate == true) "Compounded return · includes estimated legacy capital"
+            else "Compounded trade returns · starts at 0%", color = Muted, fontSize = 10.sp)
         else if (snapshot.normalizedEquity == null && view == ChartView.Cumulative)
             Text("Equity needs recorded trade capital. Update the dashboard if needed.", color = Muted, fontSize = 10.sp)
     }
@@ -1036,6 +1040,7 @@ private fun SettingsScreen(state: DashboardState, vm: DashboardViewModel, appLoc
         item { AppearanceCard(state.appearance, vm::appearance) }
         item { Panel { AlertsCard(alertsEnabled, onAlertsChange, alertStatus, onAlertHistory) } }
         item { Panel { AppUpdateCard(updateState, onUpdateCheck, onUpdateInstall) } }
+        item { Panel { DiagnosticsCard() } }
         item { Panel {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

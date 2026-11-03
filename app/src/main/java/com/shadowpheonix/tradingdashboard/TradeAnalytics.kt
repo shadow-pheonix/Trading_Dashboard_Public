@@ -39,6 +39,27 @@ data class ChartSeries(val recorded: List<ChartSample>, val captured: ChartSampl
     val samples: List<ChartSample> get() = recorded + listOfNotNull(captured)
 }
 
+val defaultAnalyticsChart = ChartView.NormalizedEquity
+
+// Keep compounding in equity units; convert both closed and open marks only
+// after calculation. A 10% gain followed by a 10% loss is -1%, not zero.
+fun displayedChartSeries(snapshot: DashboardSnapshot, view: ChartView): ChartSeries {
+    val series = chartSeries(snapshot, view)
+    if (view != ChartView.NormalizedEquity) return series
+    val base = snapshot.normalizedEquity?.baseEquity?.takeIf { it.isFinite() && it > 0 }
+        ?: return ChartSeries(emptyList(), null)
+    fun percent(point: ChartSample) = point.copy(value = (point.value / base - 1) * 100)
+    return ChartSeries(series.recorded.map(::percent), series.captured?.let(::percent))
+}
+
+fun equityPercent(value: Double): String = String.format(Locale.US, "%+.2f%%", if (abs(value) < 0.005) 0.0 else value)
+
+fun chartPercentAxisLabel(value: Double): String = when {
+    abs(value) < 10 -> String.format(Locale.US, "%.2f%%", if (abs(value) < 0.005) 0.0 else value)
+    abs(value) < 1000 -> String.format(Locale.US, "%.1f%%", value)
+    else -> chartAxisLabel(value) + "%"
+}
+
 // Keep the last actual close at its recorded timestamp. The current estimate is
 // a separate point, never a fabricated closed trade at the snapshot time.
 fun chartSeries(snapshot: DashboardSnapshot, view: ChartView): ChartSeries {

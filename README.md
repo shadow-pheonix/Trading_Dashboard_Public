@@ -40,7 +40,8 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   calculation. USD uses its $10k reference scale; % uses running peak equity.
   See the [drawdown contract](docs/API-v2.md#edge-monitor-equity-and-chart-inspection).
 - Charts offer cumulative, daily and monthly P&L plus the Edge Monitor's
-  $10k reference equity curve for either history source and model selection.
+  reference equity curve, shown as percentage growth and selected by default,
+  for either history source and model selection.
   Cumulative and reference-equity views show a captured point including active P&L
   for Real money. Tap, drag or use previous/next controls to inspect points.
   The [chart contract](docs/API-v2.md#edge-monitor-equity-and-chart-inspection)
@@ -50,6 +51,8 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
 - Tap an active trade to see combined leverage and a shared recorded stop.
   These details do not verify live exchange orders.
 - Settings saves Light, Dark or Use device setting without changing login keys.
+- Settings can [export or clear private diagnostics](docs/DIAGNOSTICS.md) for app,
+  connection and chart issues. Export uses Android’s share sheet.
 - The first opening after an update shows a scrollable **What's new** popup after
   unlocking, grouped into New features, Improvements and Bug fixes; empty categories
   are hidden. Dismissing acknowledges that version across all instances. Fresh

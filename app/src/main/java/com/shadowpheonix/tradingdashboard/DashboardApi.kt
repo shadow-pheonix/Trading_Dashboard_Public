@@ -48,7 +48,7 @@ fun dashboardRequest(connection: Connection, period: String, account: String, mo
         .build()
     return Request.Builder().url(url).get()
         .header("Authorization", "Bearer ${connection.accessKey}")
-        .header("Accept", "application/json").build()
+        .header("Accept", "application/json").tag(DiagnosticScope::class.java, diagnosticScope(connection.id)).build()
 }
 
 fun dashboardStreamRequest(connection: Connection, period: String, account: String, mode: String = "real"): Request {
@@ -58,7 +58,7 @@ fun dashboardStreamRequest(connection: Connection, period: String, account: Stri
 }
 
 class DashboardApi {
-    private val client = OkHttpClient.Builder()
+    private val client = OkHttpClient.Builder().eventListenerFactory { DiagnosticHttpListener() }
         .followRedirects(false).followSslRedirects(false)
         .connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS).build()
@@ -66,6 +66,9 @@ class DashboardApi {
     fun stream(connection: Connection, period: String, account: String, mode: String = "real") = callbackFlow {
         val request = dashboardStreamRequest(connection, period, account, mode)
         val socket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                AppDiagnostics.record(DiagnosticEvent.StreamOpened, mapOf(DiagnosticField.Endpoint to 2L, DiagnosticField.Scope to diagnosticScope(connection.id).value))
+            }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     if (text.toByteArray(Charsets.UTF_8).size > 2 * 1024 * 1024) throw DashboardError("Dashboard response is too large.")
@@ -75,7 +78,8 @@ class DashboardApi {
                         webSocket.cancel()
                         close(DashboardError("Dashboard updates could not be processed."))
                     }
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    AppDiagnostics.record(DiagnosticEvent.InvalidData, mapOf(DiagnosticField.Endpoint to 2L), error)
                     webSocket.cancel()
                     close(DashboardError("Could not read dashboard updates securely."))
                 }
@@ -85,10 +89,12 @@ class DashboardApi {
                 close(DashboardError("Unsupported dashboard update format."))
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                AppDiagnostics.record(DiagnosticEvent.StreamFailed, mapOf(DiagnosticField.Endpoint to 2L, DiagnosticField.Scope to diagnosticScope(connection.id).value), t)
                 response?.close()
                 close(DashboardError("Connection lost. Check the dashboard server and your network."))
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                AppDiagnostics.record(DiagnosticEvent.StreamClosed, mapOf(DiagnosticField.Endpoint to 2L, DiagnosticField.Code to code.toLong()))
                 close(DashboardError("Dashboard connection closed."))
             }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -112,6 +118,7 @@ class DashboardApi {
                         val snapshot = response.use { parseResponse(it, period, account, mode) }
                         if (continuation.isActive) continuation.resume(snapshot)
                     } catch (e: Exception) {
+                        AppDiagnostics.record(DiagnosticEvent.InvalidData, error = e)
                         if (continuation.isActive) continuation.resumeWithException(
                             if (e is DashboardError) e else DashboardError("Could not read dashboard data securely."))
                     }
@@ -134,7 +141,8 @@ class DashboardApi {
                         val value = response.use { dashboardJson.decodeFromString<BalanceSnapshot>(readBody(it)) }
                         validateBalances(value)
                         if (continuation.isActive) continuation.resume(value)
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        AppDiagnostics.record(DiagnosticEvent.InvalidData, error = error)
                         if (continuation.isActive) continuation.resumeWithException(DashboardError("Balances unavailable. Refresh to retry."))
                     }
                 }
@@ -169,7 +177,8 @@ class DashboardApi {
                         val value = response.use { dashboardJson.decodeFromString<MacdSnapshot>(readBody(it)) }
                         validateMacd(value)
                         if (continuation.isActive) continuation.resume(value)
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        AppDiagnostics.record(DiagnosticEvent.InvalidData, error = error)
                         if (continuation.isActive) continuation.resumeWithException(DashboardError("MACD data unavailable."))
                     }
                 }

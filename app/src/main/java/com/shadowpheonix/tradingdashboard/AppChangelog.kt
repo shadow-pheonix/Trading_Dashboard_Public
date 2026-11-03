@@ -27,15 +27,11 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
     ChangelogChange(ChangelogCategory.NewFeatures,
-        "Open the main BTC chart full screen with all three models’ labelled entry arrows and stop-loss lines. Toggle all overlays together; the price chart uses the entire plot without MACD."),
+        "Export or clear private app diagnostics from Settings to help investigate connection and chart issues. Keys, server addresses and alert text are excluded."),
     ChangelogChange(ChangelogCategory.NewFeatures,
-        "Receive alerts when combined open P&L crosses positive or negative $1,000 levels within each instance, with a 15-minute cooldown for each level. New levels still alert immediately; repeated crossings stay quiet during their cooldown. Current P&L appears in the alert; instance notification controls still apply."),
-    ChangelogChange(ChangelogCategory.NewFeatures,
-        "Drag the right-hand price or MACD axis to set a manual vertical scale, then pan and pinch freely. Double-tap an axis or tap Auto to restore automatic scaling."),
+        "Rotate any full-screen Strategies chart between portrait and landscape using its rotation button. Charts open in portrait; your zoom, pan and manual scales survive rotation."),
     ChangelogChange(ChangelogCategory.Improvements,
-        "Automatic price scaling now fits the visible candles without zooming out for distant stop-loss lines. Drag the time axis to zoom, or use Follow latest to resume live scrolling."),
-    ChangelogChange(ChangelogCategory.BugFixes,
-        "Refreshing keeps the current chart visible while fetching new data. Stable time slots and axis widths prevent extra jumps when live samples or trade markers become unavailable."),
+        "Analytics now opens on the equity curve in percent, starting at 0%, using edge_engine.py’s compounded return calculation. The open-P&L snapshot estimate remains included when available."),
 )
 
 @Composable

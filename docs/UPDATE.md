@@ -231,7 +231,8 @@ Hyperliquid balance requests. Navigate through every tab and change filters:
 the connection must stay open. Analytics must hold its snapshot through repeated
 live updates and time passing, including the All models / All view. Re-entering
 Analytics, changing a filter or manual refresh must load a new snapshot; Home
-and Trades must continue updating. Inspect the final dashed chart segment:
+and Trades must continue updating. Check that Analytics opens on Equity with percentage growth from 0%;
+raw P&L views retain their monetary units. Inspect the final dashed chart segment:
 the last close and current snapshot must occupy their own time positions, with
 the elapsed time visible horizontally. Test the Fingerprint unlock switch across
 closing/reopening: disabled opens directly; enabled requires Android authentication
@@ -239,6 +240,11 @@ after closing, while tabs/background/resume preserve an unlocked session.
 Confirm background/close releases it and
 resuming reconnects once. Check monthly P&L's neutral tiles and colored text in
 Dark mode. Retain an older APK to check v1 login and streaming.
+Test portrait/landscape toggling on the BTC chart and each model chart,
+including manual scaling, inspection, overlay visibility, background/resume and Back.
+Confirm Back restores portrait and the chart window survives rotation.
+Use Settings to export and clear [app diagnostics](DIAGNOSTICS.md); verify the
+share sheet opens and the ZIP contains only the documented fields.
 For failures, use dashboard service status and private diagnostics; do not print
 login headers, public addresses or provider payloads. Offline tests use mocks
 and do not prove live exchange reachability, actual address mapping, phone UI,

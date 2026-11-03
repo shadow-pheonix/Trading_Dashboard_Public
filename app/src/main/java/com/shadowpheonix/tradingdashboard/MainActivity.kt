@@ -71,6 +71,19 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        val config = resources.configuration
+        AppDiagnostics.record(DiagnosticEvent.ActivityStarted, mapOf(DiagnosticField.Orientation to config.orientation.toLong(),
+            DiagnosticField.Width to config.screenWidthDp.toLong(), DiagnosticField.Height to config.screenHeightDp.toLong(),
+            DiagnosticField.FontScale to (config.fontScale * 100).toLong()))
+    }
+
+    override fun onStop() {
+        AppDiagnostics.record(DiagnosticEvent.ActivityStopped)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         changelogStore = runCatching { ChangelogStore(this) }.getOrNull()

@@ -70,17 +70,22 @@ sample-time changes alone send no heartbeat. Bot outbox failure does not block
 an otherwise valid P&L sample. All access remains read-only.
 
 The phone tracks signed $1,000 bands: +1,000, +2,000, −1,000, −2,000, etc.
-Reaching a level away from zero alerts; returning inside it alerts again.
-Zero is not a milestone. Each observed crossing, including re-crossings, sends
-the current combined P&L and the last crossed level with its direction. A sample
-jumping several levels produces one message with the number crossed. For example,
+Each level has an independent 15-minute cooldown. A newly crossed level alerts
+immediately; crossing the same level again in either direction stays quiet until
+15 minutes after its last alert. Quiet re-crossings do not extend that expiry.
+Zero is not a milestone. Eligible crossings send current combined P&L and the
+last eligible crossed level with its direction. A sample jumping several levels
+produces one message counting only levels eligible to alert. For example,
 +$950 → +$2,045.61 reports current +$2,045.61, crossed +$2,000 ↑ (2 levels).
-A subsequent +$1,999.99 reports +$2,000 ↓.
+A subsequent +$1,999.99 is quiet during that level’s cooldown; reaching +$3,000
+can alert immediately. Expiry alone never generates an alert without a crossing.
+Cooldowns are persisted as compact level ranges, so large jumps do not allocate
+one record per $1,000 mark.
 
 First observation and a changed position set (entry, addition, trim, reversal
 or close) establish silent baselines; a changed stop alone does not reset them.
 Samples received over 30 seconds late, in the future or out of order are ignored.
-The baseline, monotonic local event sequence, generated history and pending
+The baseline, per-level cooldowns, monotonic local event sequence, history and pending
 notifications are saved with the bot cursor in one private ledger commit before
 posting. A second commit clears pending delivery after posting; restart retries
 the saved event even if price has crossed back. Deterministic IDs make retries
@@ -224,7 +229,8 @@ events still deliver on the next read. Android tests cover presentation, channel
 migration, source-ID deduplication, replay, bootstrap, gaps, feed validation,
 authenticated URLs, offline suspension, network handover, retry cancellation,
 bounded jitter, healthy recovery, boot/update eligibility, signed milestone
-crossings/recovery, silent baselines, position-set resets, mute and durable replay.
+crossings/recovery, cooldown expiry and independent levels, silent baselines,
+position-set resets, mute and durable replay.
 Actions runs unit tests, lint and builds with the existing permanent signature.
 These offline checks do not prove live fills, exchange rejections, device
 background reliability, real VPS permissions or long-running behavior.

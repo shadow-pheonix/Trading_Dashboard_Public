@@ -215,7 +215,8 @@ indicator and enable floating alerts. Verify background delivery after ordinary
 recent-app dismissal, screen-off, network handover, reboot/unlock and APK updates;
 Force stop requires reopening. Check that disabling alerts stops the receiver.
 Verify [P&L milestones](ALERTS.md#combined-open-pl-milestones) with synthetic
-positive/negative crossings and recovery, muted instances and reconnect. Check
+positive/negative crossings, 15-minute per-level cooldown/expiry, immediate new
+levels, muted instances and reconnect. Check
 current totals in floating/shade/inbox views. A first sample, closing trade or
 position-set change must not create an alert. Do not place a trade to test this.
 

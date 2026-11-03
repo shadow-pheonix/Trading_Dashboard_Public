@@ -41,6 +41,7 @@ internal fun alertCheckpointChanged(before: AlertLedger, after: AlertLedger): Bo
     before.sourceId != after.sourceId || before.cursor != after.cursor || before.history != after.history ||
         before.gap != after.gap || before.pendingNotifications != after.pendingNotifications ||
         before.pnl?.positionsKey != after.pnl?.positionsKey || before.pnl?.sequence != after.pnl?.sequence ||
+        before.pnl?.recentLevels != after.pnl?.recentLevels ||
         before.pnl?.value?.div(1000)?.toLong() != after.pnl?.value?.div(1000)?.toLong()
 
 

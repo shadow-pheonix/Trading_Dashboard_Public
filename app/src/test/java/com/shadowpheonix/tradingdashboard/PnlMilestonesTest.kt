@@ -28,17 +28,71 @@ class PnlMilestonesTest {
         assertTrue(initial.notifications.isEmpty()); assertEquals(8900.0,initial.ledger.pnl!!.value,0.0)
         assertTrue(initial.ledger.history.isEmpty())
     }
-    @Test fun everyRecrossingProducesAnAlertWithTheCurrentCombinedPnl() {
+    @Test fun cooldownSuppressesRecrossingsButNewPositiveAndNegativeLevelsAlertImmediately() {
         val first=next(seeded(),sample(2045.61,103_000))
         val event=first.notifications.single()
         assertTrue(event.message.contains("Current P&L: +$2,045.61"))
         assertTrue(event.message.contains("Crossed: +$2,000 ↑ (2 levels)"))
         assertTrue(event.message.contains("All models · All wallets"))
         val down=next(first.ledger,sample(1999.99,106_000))
-        assertTrue(down.notifications.single().message.contains("+$2,000 ↓"))
+        assertTrue(down.notifications.isEmpty())
         val up=next(down.ledger,sample(2000.0,109_000))
-        assertTrue(up.notifications.single().message.contains("+$2,000 ↑"))
-        assertEquals(3,(first.notifications+down.notifications+up.notifications).map { it.id }.distinct().size)
+        assertTrue(up.notifications.isEmpty())
+        val newProfit=next(up.ledger,sample(3000.0,112_000))
+        assertTrue(newProfit.notifications.single().message.contains("+$3,000 ↑"))
+        val newLoss=next(newProfit.ledger,sample(-1000.0,115_000))
+        assertTrue(newLoss.notifications.single().message.contains("−$1,000 ↓"))
+        assertEquals(3,(first.notifications+newProfit.notifications+newLoss.notifications).map { it.id }.distinct().size)
+    }
+    @Test fun cooldownExpiresAtFifteenMinutesAndQuietRecrossingsDoNotExtendIt() {
+        val first=next(seeded(),sample(1050.0,103_000))
+        val down=next(first.ledger,sample(950.0,106_000))
+        assertTrue(down.notifications.isEmpty())
+        val before=next(down.ledger,sample(1050.0,103_000+PNL_MILESTONE_COOLDOWN_MS-1))
+        assertTrue(before.notifications.isEmpty())
+        val expired=next(before.ledger,sample(950.0,103_000+PNL_MILESTONE_COOLDOWN_MS))
+        assertTrue(expired.notifications.single().message.contains("+$1,000 ↓"))
+        val again=next(expired.ledger,sample(1050.0,103_000+PNL_MILESTONE_COOLDOWN_MS+1))
+        assertTrue(again.notifications.isEmpty())
+        assertEquals(15*60_000L,PNL_MILESTONE_COOLDOWN_MS)
+    }
+    @Test fun levelsKeepIndependentExpiryTimesAcrossRestart() {
+        val one=next(seeded(),sample(1050.0,103_000))
+        val two=next(one.ledger,sample(2050.0,106_000))
+        val down=next(two.ledger,sample(950.0,109_000))
+        assertTrue(down.notifications.isEmpty())
+        val restored=dashboardJson.decodeFromString<AlertLedger>(dashboardJson.encodeToString(down.ledger))
+        val oneExpired=next(restored,sample(1050.0,103_000+PNL_MILESTONE_COOLDOWN_MS))
+        assertEquals(1,oneExpired.notifications.size)
+        val twoNotExpired=next(oneExpired.ledger,sample(2050.0,103_001+PNL_MILESTONE_COOLDOWN_MS))
+        assertTrue(twoNotExpired.notifications.isEmpty())
+        val twoExpired=next(twoNotExpired.ledger,sample(1950.0,106_000+PNL_MILESTONE_COOLDOWN_MS))
+        assertTrue(twoExpired.notifications.single().message.contains("+$2,000 ↓"))
+    }
+    @Test fun jumpsOnlyNotifyEligibleLevelsAndStoreHugeWindowsAsCompactRanges() {
+        val one=next(seeded(),sample(1050.0,103_000))
+        val down=next(one.ledger,sample(950.0,106_000))
+        val jump=next(down.ledger,sample(3450.0,109_000))
+        assertTrue(jump.notifications.single().message.contains("+$3,000 ↑ (2 levels)"))
+        val dropped=next(jump.ledger,sample(950.0,112_000))
+        assertTrue(dropped.notifications.isEmpty())
+        val huge=next(dropped.ledger,sample(1e20,115_000))
+        assertEquals(1,huge.notifications.size)
+        assertEquals(3,huge.ledger.pnl!!.recentLevels.size)
+        assertTrue(huge.ledger.pnl!!.recentLevels.any { it.last==100000000000000000L })
+        val reversed=next(huge.ledger,sample(-1e20,118_000))
+        assertEquals(1,reversed.notifications.size)
+        assertTrue(reversed.notifications.single().message.contains("−$100,000,000,000,000,000,000 ↓"))
+        assertTrue(reversed.ledger.pnl!!.recentLevels.size<=4)
+    }
+    @Test fun cooldownOnlyTracksAcceptedCrossingsAndNeverNotifiesOnATimerAlone() {
+        val first=next(seeded(),sample(1050.0,103_000))
+        val elapsed=next(first.ledger,sample(1200.0,103_000+PNL_MILESTONE_COOLDOWN_MS))
+        assertTrue(elapsed.notifications.isEmpty())
+        assertTrue(elapsed.ledger.pnl!!.recentLevels.isEmpty())
+        assertTrue(alertCheckpointChanged(first.ledger,elapsed.ledger))
+        val crossed=next(elapsed.ledger,sample(950.0,103_001+PNL_MILESTONE_COOLDOWN_MS))
+        assertEquals(1,crossed.notifications.size)
     }
     @Test fun lossesAndLargeJumpsProduceOneBoundedMessagePerSample() {
         val delivery=next(seeded(-900.0),sample(-3425.12,103_000))
@@ -95,8 +149,8 @@ class PnlMilestonesTest {
         assertTrue(retried.ledger.pendingNotifications.isEmpty())
         // Once posting and the acknowledgement commit complete, reconnect is quiet.
         assertTrue(next(retried.ledger,sample(1200.0,109_000)).notifications.isEmpty())
-        // A re-crossing during recovery delivers the pending original and the new event.
-        val recrossed=next(restored,sample(950.0,106_000))
+        // A new level during recovery delivers the pending original and the new event.
+        val recrossed=next(restored,sample(2050.0,106_000))
         assertEquals(2,recrossed.notifications.size)
         assertEquals(first.notifications.single(),recrossed.notifications.first())
         assertNotEquals(recrossed.notifications[0].id,recrossed.notifications[1].id)

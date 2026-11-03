@@ -29,7 +29,7 @@ internal val appChangelog = listOf(
     ChangelogChange(ChangelogCategory.NewFeatures,
         "Open the main BTC chart full screen with all three models’ labelled entry arrows and stop-loss lines. Toggle all overlays together; the price chart uses the entire plot without MACD."),
     ChangelogChange(ChangelogCategory.NewFeatures,
-        "Receive alerts when combined open P&L crosses positive or negative $1,000 levels within each instance, including re-crossings. Current P&L appears in the alert; instance notification controls still apply."),
+        "Receive alerts when combined open P&L crosses positive or negative $1,000 levels within each instance, with a 15-minute cooldown for each level. New levels still alert immediately; repeated crossings stay quiet during their cooldown. Current P&L appears in the alert; instance notification controls still apply."),
     ChangelogChange(ChangelogCategory.NewFeatures,
         "Drag the right-hand price or MACD axis to set a manual vertical scale, then pan and pinch freely. Double-tap an axis or tap Auto to restore automatic scaling."),
     ChangelogChange(ChangelogCategory.Improvements,

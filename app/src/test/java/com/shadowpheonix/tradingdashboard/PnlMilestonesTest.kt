@@ -19,7 +19,7 @@ class PnlMilestonesTest {
             Triple(-999.99,-1000.0,-1000L), Triple(-1000.0,-999.99,-1000L),
             Triple(2001.0,1999.0,2000L), Triple(-2001.0,-1999.0,-2000L),
             Triple(1500.0,-2500.0,-2000L), Triple(-1500.0,2500.0,2000L))
-        cases.forEach { (before,after,level) -> assertEquals("$before to $after",level,pnlCrossing(before,after)!!.last) }
+        cases.forEach { (before,after,level) -> assertEquals("$before to $after",level.toDouble(),pnlCrossing(before,after)!!.last,0.0) }
         listOf(0.0 to 999.99, 999.0 to -999.0, 1000.0 to 1999.99, -1000.0 to -1999.99)
             .forEach { (before,after) -> assertNull(pnlCrossing(before,after)) }
     }
@@ -47,6 +47,15 @@ class PnlMilestonesTest {
         assertTrue(event.message.contains("−$3,000 ↓ (3 levels)"))
         assertEquals(1,next(seeded(),sample(1e20,103_000)).notifications.size)
     }
+    @Test fun supportedLargePnlValuesCannotOverflowTheCrossedLevelOrFlipItsSign() {
+        val profit=next(seeded(),sample(1e20,103_000)).notifications.single()
+        assertTrue(profit.message,profit.message.contains("Crossed: +$100,000,000,000,000,000,000 ↑"))
+        val overflowSign=next(seeded(),sample(1e19,103_000)).notifications.single()
+        assertTrue(overflowSign.message,overflowSign.message.contains("Crossed: +$10,000,000,000,000,000,000 ↑"))
+        val loss=next(seeded(-950.0),sample(-1e20,103_000)).notifications.single()
+        assertTrue(loss.message,loss.message.contains("Crossed: −$100,000,000,000,000,000,000 ↓"))
+    }
+
     @Test fun reconnectSerializationAndUncommittedRetriesKeepStableIds() {
         val saved=seeded()
         val sample=sample(1050.0,103_000)

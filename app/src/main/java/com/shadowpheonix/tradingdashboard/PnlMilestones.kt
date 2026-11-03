@@ -19,7 +19,7 @@ data class AlertPnlSample(val positionsKey: String, val value: Double, val activ
 data class PnlMilestoneState(val positionsKey: String, val value: Double, val sampledAt: Long,
                              val sequence: Long = 0)
 
-internal data class PnlCrossing(val last: Long, val count: Long, val rising: Boolean)
+internal data class PnlCrossing(val last: Double, val count: Long, val rising: Boolean)
 
 /** Signed $1,000 bands exclude zero; recovery/re-crossings count as well. */
 internal fun pnlCrossing(previous: Double, current: Double): PnlCrossing? {
@@ -29,7 +29,7 @@ internal fun pnlCrossing(previous: Double, current: Double): PnlCrossing? {
     val rising = after > before
     val last = if (rising) { if (after > 0) after else after-1 }
                else { if (after < 0) after else after+1 }
-    return PnlCrossing(last * 1000, abs(after-before), rising)
+    return PnlCrossing(last.toDouble() * 1000, abs(after-before), rising)
 }
 
 private fun pnlMoney(value: Double) = String.format(Locale.US, "%s$%,.2f", if (value < 0) "−" else "+", abs(value))
@@ -44,7 +44,7 @@ internal fun withPnlMilestones(delivery: AlertDelivery, sample: AlertPnlSample?,
     val sequence = (saved?.sequence ?: 0) + if (crossing != null) 1 else 0
     val state = PnlMilestoneState(sample.positionsKey, sample.value, sample.sampledAt, sequence)
     val event = crossing?.let {
-        val level = String.format(Locale.US, "%s$%,d", if (it.last < 0) "−" else "+", abs(it.last))
+        val level = String.format(Locale.US, "%s$%,.0f", if (it.last < 0) "−" else "+", abs(it.last))
         DashboardAlert("pnl_${sample.positionsKey.take(16)}_$sequence", sample.sampledAt,
             "${if (sample.value >= 0) "📈" else "📉"} Combined open P&L\n" +
                 "Current P&L: ${pnlMoney(sample.value)}\n" +

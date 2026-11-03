@@ -1,6 +1,10 @@
 package com.shadowpheonix.tradingdashboard
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.OpenInFull
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -62,14 +66,19 @@ internal fun DrawScope.drawPriceCandles(candles: List<PriceCandle>, x: (Int) -> 
 }
 
 @Composable
-internal fun CandlePreview(value: MacdSnapshot?, now: Long, cached: Boolean, failed: Boolean = false) {
+internal fun CandlePreview(value: MacdSnapshot?, now: Long, cached: Boolean, failed: Boolean = false, onOpen: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val live = formingIsFresh(value,now,cached,failed)
-    Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp), color = colors.surface,
+    Surface(modifier = Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button,
+        onClickLabel = "Open BTC full-screen chart", onClick = onOpen),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp), color = colors.surface,
         border = androidx.compose.foundation.BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.5f))) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("BTC / USDT", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("BTC / USDT", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Outlined.OpenInFull, null, Modifier.size(16.dp), tint = colors.primary)
+                }
                 Text(if (live) "15m · Live" else "15m · Closed", color = colors.onSurfaceVariant, fontSize = 11.sp)
             }
             when {

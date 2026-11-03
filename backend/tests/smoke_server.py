@@ -23,7 +23,7 @@ class SyntheticPrices:
         pass
 
     def get(self, symbol):
-        return 110, int(time.time() * 1000)
+        return 110, int(time.time() * 1000) - 1000
 
     def ticker(self, symbol):
         return {"symbol": symbol, "price": 111, "change24hPct": 2.5, "updatedAt": int(time.time() * 1000) - 1000}

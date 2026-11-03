@@ -136,19 +136,37 @@ or bot write. Candle freshness is independent of the MACD document's status.
 The legacy view keeps the captured bot evaluation and closed spot data. Current
 apps use the [extended live view](#live-candle-and-extended-macd).
 
-The static preview fits candles at about 5 dp per slot with sparse axes. Opening
-a model hides the app header, navigation and system bars. The chart workspace
-uses a shared timeline with 70% of its plot height for price and 30% for MACD,
+The preview fits candles at about 5 dp per slot with sparse axes. Tap it to open
+a full-screen BTC price chart with the same retained history and controls as the
+model charts, no MACD pane, and all M1/M2/M3 entry/SL overlays. The eye button
+shows or hides every model’s overlays together without changing the viewport.
+Opening either the BTC chart or a model hides the app header, navigation and system bars. The chart workspace
+uses the full plot height for price in BTC mode; model mode uses a shared
+timeline with 70% of its plot height for price and 30% for MACD,
 excluding top controls and the shared time axis. It starts with the latest 60
 candles, zooms between 12 and 96 and pans throughout the retained history.
 Pinch zoom anchors at the gesture centroid. Tap or hold and drag to inspect;
-the crosshair button switches inspection back to panning. Zoom buttons, double
-tap and Return to latest provide explicit controls; Back returns to Strategies.
-Both panels select the same timestamp. Missing MACD points leave gaps, rather
-than being attached to another candle. Panned history stays anchored when the
-window rolls forward; the latest view follows new candles.
+the crosshair button switches inspection back to panning. Both panels select
+the same timestamp; missing MACD points stay empty. Manual horizontal windows
+are anchored by timestamp in the first render after a data change. Follow latest
+resumes live scrolling; double-tapping the plot resets both axes and inspection.
+Back returns to Strategies. Dragging the bottom time axis adjusts horizontal
+zoom within the same 12–96 limits; its double-tap resumes following latest.
+
+Automatic price scale fits only visible candles, excluding entry/stop levels.
+Distant stops stay outside the view instead of compressing the candles or
+clamping a badge to a false price. Drag the right price axis vertically to set
+a manual scale, then drag/pinch in the candle pane to move/zoom it freely.
+The MACD axis has an independent manual scale. Manual ranges survive quote
+updates and horizontal navigation. Double-tap an axis to reset that scale, or
+tap Auto to reset both vertical scales without moving the horizontal window.
+Axis gestures use separate hit regions from inspection and chart panning.
+The price gutter and status-row heights stay independent of changing data.
 
 The phone's existing private per-connection cache retains both closed series.
+An active-session refresh retains its accepted online snapshot while fetching;
+it does not replace it with the closed-only disk copy. A new foreground session
+or changed connection/credential still loads the safe disk cache first.
 Partial responses keep the other complete series visibly stale; loading and
 failures do not replace it with invented values. Older servers returning 400 for
 the extended view fall back to the legacy chart, then to MACD-only requests if
@@ -188,6 +206,8 @@ display history and provisional preview never change bot signals or execution.
 
 Partial data expires after 15 seconds or immediately at a candle rollover,
 refresh failure, cached-only view or background return without a fresh sample.
+Its time slot remains empty when hidden, keeping the horizontal window stable;
+no OHLC, MACD or entry arrow is invented for that slot.
 It is excluded from the disk cache, so a partial bar never becomes a saved final
 candle. Closed price/MACD histories remain independently available through partial
 refreshes; missing matching timestamps leave gaps. Trade markers can appear on
@@ -219,7 +239,9 @@ protection is labelled `SL?`, and missing stops produce no invented line.
 These are saved bot records, not independent exchange-order verification.
 
 Wallets retain separate entry prices and stops. Same-candle arrows of the same
-direction can share a label; selecting that candle reveals individual fills.
+direction within one model can share a label; selecting that candle reveals
+individual fills. The main BTC chart prefixes labels with model IDs and stacks
+separate same-candle model arrows without moving their time anchors.
 Equal-price stops share a badge but retain their own starting candles. Nearby
 badges are spaced with leaders while keeping the actual price lines exact.
 An entry before the visible window has a clipped continuation ray, without a

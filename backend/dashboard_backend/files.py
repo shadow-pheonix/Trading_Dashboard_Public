@@ -10,7 +10,7 @@ import stat
 import threading
 
 from .market import decimal
-from .validation import InvalidData, decode, number, snapshot, period_start
+from .validation import InvalidData, decode, encode, number, snapshot, period_start
 from .grouping import model_projection, validate_v2, normalized_equity
 
 MAX_HISTORY_BYTES = 8 * 1024 * 1024
@@ -238,6 +238,53 @@ class BotFiles:
             return dict(tradeAnnotations=[], annotationStatus='unavailable', annotationSampledAt=None)
         return dict(tradeAnnotations=output, annotationStatus='ok' if complete else 'partial', annotationSampledAt=now)
 
+    def read_position(self, account, prices, now):
+        """Shared saved-position validation and mark P&L for Home and milestones."""
+        raw, info = read_stable(account.state_path, 1024 * 1024)
+        value = decode(raw)
+        if not isinstance(value, dict) or "trade" not in value:
+            raise InvalidData()
+        updated = info.st_mtime_ns // 1000000
+        if updated <= 0 or updated > now:
+            raise InvalidData()
+        history, available = self.history(account)
+        trade, opened, pnl = value["trade"], None, 0.0
+        price = prices.get(account.symbol)
+        if trade is not None:
+            if not isinstance(trade, dict) or trade.get("side") not in ("LONG", "SHORT"):
+                raise InvalidData()
+            size, entry = number(trade.get("sz")), number(trade.get("entry_price"))
+            opened = entry_timestamp(trade.get("entry_time"))
+            if size <= 0 or entry <= 0 or opened is not None and opened > now:
+                raise InvalidData()
+            if opened is not None and any(t["openedAt"] == opened and t["side"] == trade["side"] for t in history):
+                raise InvalidData()  # State/CSV crossed a close-write boundary; retry next update.
+            pnl = (price[0] - entry) * size * (1 if trade["side"] == "LONG" else -1) if price else None
+        return trade, updated, history, available, price, opened, pnl
+
+    def pnl_sample(self, instance, prices, now):
+        """Read-only, instance-wide open P&L; never infer fills or fetch balances."""
+        with self.lock:
+            try:
+                identities, values, price_times = [], [], []
+                for account in instance.accounts:
+                    trade, _, _, available, price, opened, pnl = self.read_position(account, prices, now)
+                    if trade is None:
+                        continue
+                    if (not available or opened is None or pnl is None or price is None
+                            or not 0 <= now - price[1] <= 15000):
+                        return None
+                    values.append(number(pnl))
+                    price_times.append(price[1])
+                    identities.append([account.id, opened, trade['side'], trade['sz'], trade['entry_price']])
+                # Only an opaque position-set fingerprint leaves the server. Trims,
+                # additions and closes establish a fresh baseline on the phone.
+                key = hashlib.sha256(encode(sorted(identities))).hexdigest()
+                return dict(positionsKey=key, value=number(sum(values)), activeCount=len(identities),
+                            sampledAt=now, priceUpdatedAt=min(price_times) if price_times else None)
+            except (OSError, InvalidData, ValueError, TypeError, csv.Error):
+                return None
+
     def build(self, instance, period, selected, prices, now, mode="real", version=1, idle_balances=None, clock=None):
         with self.lock:
             if mode == "edge":
@@ -256,36 +303,19 @@ class BotFiles:
             uses_idle, idle_times = False, []
             complete = True
             for account in instance.accounts:
-                raw, info = read_stable(account.state_path, 1024 * 1024)
-                value = decode(raw)
-                if not isinstance(value, dict) or "trade" not in value:
-                    raise InvalidData()
-                updated = info.st_mtime_ns // 1000000
-                if updated <= 0 or updated > now:
-                    raise InvalidData()
-                history, available = self.history(account)
+                trade, updated, history, available, price, opened, pnl = self.read_position(account, prices, now)
                 histories[account.id] = history
                 chosen = selected == "all" or selected == (account.strategy if version == 2 else account.id)
                 if chosen:
                     complete = complete and available
                     state_times.append(updated)
-                trade = value["trade"]
                 entry_equity = None
-                pnl, status = 0.0, "Flat (saved state)"
-                price = prices.get(account.symbol)
+                status = "Flat (saved state)"
                 if price and chosen:
                     price_times.append(price[1])
                 if trade is not None:
-                    if not isinstance(trade, dict) or trade.get("side") not in ("LONG", "SHORT"):
-                        raise InvalidData()
                     size, entry = number(trade.get("sz")), number(trade.get("entry_price"))
-                    opened = entry_timestamp(trade.get("entry_time"))
-                    if size <= 0 or entry <= 0 or opened is not None and opened > now:
-                        raise InvalidData()
-                    if opened is not None and any(t["openedAt"] == opened and t["side"] == trade["side"] for t in history):
-                        raise InvalidData()  # State/CSV crossed a close-write boundary; retry next update.
                     mark = price[0] if price else None
-                    pnl = (mark - entry) * size * (1 if trade["side"] == "LONG" else -1) if mark is not None else None
                     status = trade.get("status") if trade.get("status") in ("ACTIVE", "PENDING_PROTECTION") else "Open (saved state)"
                     if chosen:
                         if version == 2:

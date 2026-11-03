@@ -1,6 +1,8 @@
 # Native bot alerts
 
-Alerts use the bot's actual messages and recorded evaluation outcomes. They do
+Bot alerts use the bot's actual messages and recorded evaluation outcomes.
+[Combined open-P&L milestones](#combined-open-pl-milestones) are explicitly
+generated on the phone from validated dashboard samples. Bot alerts do
 not compare positions, guess fills, depend on Telegram, use ntfy, or import bot
 credentials into the dashboard. Telegram stays active during verification.
 
@@ -34,15 +36,62 @@ cursor. Retention expiry or an outbox reset explicitly sets `gap`. An absent,
 unreadable or corrupt outbox returns `status: unavailable`, without advancing
 the client's cursor.
 
-The authenticated socket polls only the outbox and key revocation every three
+The legacy authenticated socket polls only the outbox and key revocation every three
 seconds. New events and changed feed status are sent on the next read; unchanged
 feeds send no empty acknowledgement or application heartbeat. The server alone
 sends a WebSocket protocol ping every 60 seconds, with a 30-second pong timeout;
-the app replies automatically. It never requests prices, balances,
-trade state, or Analytics snapshots. HTTP and WebSocket v1 behavior is retained.
+the app replies automatically. This legacy mode never requests prices, balances,
+trade state, or Analytics snapshots. New apps opt into the milestone samples
+described below. HTTP and WebSocket v1 behavior is retained.
 The dashboard service has a read-only mount of the bot runtime directories and
 no access to bot environments. `alertsPath` is private dashboard configuration,
 derived during human setup from each instance's configured state directory.
+
+## Combined open-P&L milestones
+
+New Android alert sockets add `X-Dashboard-Pnl: 1`. The authenticated backend
+adds optional `openPnl` to event batches: `positionsKey` (opaque SHA-256), `value`
+(USD), `activeCount`, `sampledAt` and nullable `priceUpdatedAt`. The key selects
+the instance; the total includes every configured model/wallet, independent of
+Home’s model filter. It reuses Home’s saved-position validation and public
+Binance mark P&L calculation, excluding realized P&L, fees and funding. It is
+not an exchange-position verification. No balance or Analytics requests occur.
+Only connected opt-in receivers hold a shared public-price subscription; it is
+released on disconnect. Missing prices never delay actual bot events. Old apps
+retain the outbox-only contract, and old servers ignore the new header while
+continuing ordinary bot delivery.
+
+The server samples on the existing three-second alert poll. Missing/corrupt
+state or history, a closed-history/state write race, unknown entry time, or any
+active wallet’s missing/future/over-15-second-old mark returns `openPnl: null`,
+never a partial total. Flat portfolios return zero with no price timestamp.
+Only changed totals, position sets or availability generate extra frames;
+sample-time changes alone send no heartbeat. Bot outbox failure does not block
+an otherwise valid P&L sample. All access remains read-only.
+
+The phone tracks signed $1,000 bands: +1,000, +2,000, −1,000, −2,000, etc.
+Reaching a level away from zero alerts; returning inside it alerts again.
+Zero is not a milestone. Each observed crossing, including re-crossings, sends
+the current combined P&L and the last crossed level with its direction. A sample
+jumping several levels produces one message with the number crossed. For example,
++$950 → +$2,045.61 reports current +$2,045.61, crossed +$2,000 ↑ (2 levels).
+A subsequent +$1,999.99 reports +$2,000 ↓.
+
+First observation and a changed position set (entry, addition, trim, reversal
+or close) establish silent baselines; a changed stop alone does not reset them.
+Samples received over 30 seconds late, in the future or out of order are ignored.
+The baseline, monotonic local event sequence, generated history and pending
+notifications are saved with the bot cursor in one private ledger commit before
+posting. A second commit clears pending delivery after posting; restart retries
+the saved event even if price has crossed back. Deterministic IDs make retries
+idempotent. Same-band quote changes stay in memory; only baseline/position-set
+changes, crossings or bot delivery changes checkpoint the ledger, avoiding a
+rewrite of the whole inbox on every price tick. Reconnect compares the next
+valid total with the last saved sample;
+it cannot reconstruct crossings that occurred entirely between samples or while
+offline. Milestones use the existing floating reports channel, instance bells,
+master switch, privacy and inbox behavior. Muted crossings still advance local
+history/baseline; unmuting does not replay them. Forgetting clears them.
 
 ## Android
 
@@ -54,8 +103,8 @@ original message remains selectable. Back returns to the previous tab; opening
 alerts does not change its filters or fetch balances. Alert history retains
 up to 1,000 events per saved connection in private app storage; backups are
 disabled. Initial history loads silently. New events are posted with stable IDs
-before saving the cursor, so reconnection and a process interruption replay
-idempotently. Events missed during a disconnected period remain replayable while
+and a durable pending-delivery record, so reconnection and a process interruption
+replay idempotently. Events missed during a disconnected period remain replayable while
 retained on the server. An expired-history warning remains visible.
 
 Settings → Connections has a bell between Open Home and Forget for each instance.
@@ -165,15 +214,17 @@ and storage failures. Structural comparison restricts changed functions to
 notification handling, diagnostics export and the pinned-panel opt-out.
 `edge_engine.py` and `account2.py` are byte-identical to protected v2.4.
 
-Backend tests cover authentication, instance scope, no saved-state inference,
-no price/balance requests, read-only replay, paging, missing/corrupt feeds,
+Backend tests cover authentication, instance scope, legacy outbox-only behavior,
+opt-in P&L/Home parity without balance requests, sample failures, read-only replay,
+paging, missing/corrupt feeds,
 expired/reset cursors, revocation and human reader setup with synthetic files.
 The loopback HTTP/WebSocket smoke checks exercise actual event replay over the
 real ASGI server. Idle-stream regressions prove no empty feed traffic while new
 events still deliver on the next read. Android tests cover presentation, channel
 migration, source-ID deduplication, replay, bootstrap, gaps, feed validation,
 authenticated URLs, offline suspension, network handover, retry cancellation,
-bounded jitter, healthy recovery and boot/update eligibility.
+bounded jitter, healthy recovery, boot/update eligibility, signed milestone
+crossings/recovery, silent baselines, position-set resets, mute and durable replay.
 Actions runs unit tests, lint and builds with the existing permanent signature.
 These offline checks do not prove live fills, exchange rejections, device
 background reliability, real VPS permissions or long-running behavior.

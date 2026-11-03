@@ -184,6 +184,18 @@ Verify the [extended full-screen chart](API-v2.md#live-candle-and-extended-macd)
 pan across 256 slots, keep zoom within 12–96, and check the forming candle and
 provisional MACD update together. Test rollover, refresh failure and offline
 reopening: partial bars must disappear instead of becoming saved final candles.
+Refresh an already-live chart: it must retain the online view while fetching,
+and an expired partial sample must leave an empty slot without shifting history.
+Check [manual and automatic axes](API-v2.md#candle-preview-and-full-screen-charts):
+a distant SL must not compress candles in Auto. Drag the right price axis, pan
+vertically to reach the SL, and confirm quote updates retain the manual range.
+Double-tap the axis or tap Auto to restore candle fitting. Check independent MACD
+scaling, time-axis zoom, Follow latest and inspection in portrait/landscape and
+with large text; refreshing must not reset a panned time window.
+Tap the top BTC preview: its full-screen chart must use the same candle history,
+fill the plot with price only, and show labelled M1/M2/M3 entries and stops.
+Toggle the eye button twice; all overlays must hide/return without resetting
+zoom or manual axes. Check overlapping model entries and both themes.
 After human activation of the bot export and its first complete evaluation,
 Strategies must say Bot-calculated spot candles; compare values with the bot's
 MACD State report. Export storage replaces one bounded row in the existing
@@ -202,6 +214,10 @@ Use the [background alert controls](ALERTS.md#android) to hide only the connecti
 indicator and enable floating alerts. Verify background delivery after ordinary
 recent-app dismissal, screen-off, network handover, reboot/unlock and APK updates;
 Force stop requires reopening. Check that disabling alerts stops the receiver.
+Verify [P&L milestones](ALERTS.md#combined-open-pl-milestones) with synthetic
+positive/negative crossings and recovery, muted instances and reconnect. Check
+current totals in floating/shade/inbox views. A first sample, closing trade or
+position-set change must not create an alert. Do not place a trade to test this.
 
 Confirm Analytics and Trades headings above the period bar, source/model filters
 beside each other, no Trades search bar, paired counts, and

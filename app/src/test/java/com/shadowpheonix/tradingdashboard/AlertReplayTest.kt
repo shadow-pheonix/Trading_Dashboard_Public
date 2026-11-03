@@ -62,6 +62,7 @@ class AlertReplayTest {
         val request = alertRequest(connection, 42)
         assertEquals("/v2/alerts/live", request.url.encodedPath)
         assertEquals("after=42",request.url.encodedQuery)
+        assertEquals("1",request.header("X-Dashboard-Pnl"))
         assertEquals("Bearer ${connection.accessKey}",request.header("Authorization"))
         assertFalse(request.url.toString().contains(connection.accessKey))
     }

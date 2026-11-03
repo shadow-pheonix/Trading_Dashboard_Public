@@ -51,6 +51,24 @@ class TradeChartAnnotationsTest {
         assertEquals("SL? A 79,640",stopAnnotationLabel(listOf(trade().copy(stopState="pending"))))
     }
 
+    @Test fun mainChartIncludesAllModelsWithoutMergingSameCandleArrowsAcrossModels() {
+        val trades = listOf(trade(),trade("B"),trade().copy(id="c".repeat(24),modelId="M2"),
+            trade().copy(id="d".repeat(24),modelId="M3",side="SHORT"))
+        val value=snapshot().copy(tradeAnnotations=trades)
+        assertEquals(trades,visibleTradeAnnotations(value,BTC_CHART_ID,now,false,false))
+        assertEquals(2,visibleTradeAnnotations(value,"M1",now,false,false).size)
+        val markers=entryChartMarkers(trades,times)
+        assertEquals(3,markers.size)
+        assertEquals(setOf("M1","M2","M3"),markers.map { it.trades.first().modelId }.toSet())
+        assertTrue(markers.all { it.index==20 && it.trades.map { t -> t.modelId }.distinct().size==1 })
+        val m1=markers.first { it.trades.first().modelId=="M1" }
+        assertEquals("M1 LONG A/B 80,120",entryAnnotationLabel(m1,includeModel=true))
+        val stops=stopAnnotationLabel(trades,includeModel=true)
+        assertEquals("M1 A/B · M2 A · M3 A SL 79,640",stops)
+        assertTrue(visibleTradeAnnotations(value,BTC_CHART_ID,now,true,false).isEmpty())
+        assertTrue(visibleTradeAnnotations(value,BTC_CHART_ID,now,false,true).isEmpty())
+    }
+
     @Test fun oldOfflineAndFailedRefreshMetadataCannotShowActiveStops() {
         val value=snapshot()
         assertEquals(listOf(trade()),visibleTradeAnnotations(value,"M1",now,false,false))

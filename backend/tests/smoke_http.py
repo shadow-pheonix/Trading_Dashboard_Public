@@ -123,6 +123,12 @@ def main():
             with connect(f'ws://127.0.0.1:{port}/v2/alerts/live?after=0', additional_headers={'Authorization': 'Bearer ' + token}) as alert_socket:
                 event_batch = json.loads(alert_socket.recv(timeout=5))
                 assert event_batch['cursor'] == 1 and event_batch['events'][0]['id'] == 'actual_event'
+            with connect(f'ws://127.0.0.1:{port}/v2/alerts/live?after=0',
+                         additional_headers={'Authorization': 'Bearer ' + token, 'X-Dashboard-Pnl': '1'}) as pnl_socket:
+                pnl_batch = json.loads(pnl_socket.recv(timeout=5))
+                assert pnl_batch['cursor'] == 1 and pnl_batch['events'][0]['id'] == 'actual_event'
+                assert pnl_batch['openPnl']['activeCount'] == 1 and pnl_batch['openPnl']['value'] == 20
+                assert len(pnl_batch['openPnl']['positionsKey']) == 64
             status, body = call('/v1/dashboard?period=1M&account=all')
             assert status == 200 and body['metrics']['equity'] is None and body['live']
             assert body['metrics']['unrealizedPnl'] == 20

@@ -26,10 +26,6 @@ internal data class ChartViewport(val first: Double, val count: Double) {
     fun zoomControl(total: Int, factor: Double): ChartViewport =
         transform(total, factor, 0.0, if (first + count >= total - 0.001) 1.0 else 0.5)
 
-    fun rebased(oldFirstTime: Long, newFirstTime: Long, oldTotal: Int, newTotal: Int): ChartViewport =
-        if (first + count >= oldTotal - 0.001) latest(newTotal, count)
-        else copy(first = first - (newFirstTime - oldFirstTime).toDouble() / MACD_INTERVAL).bounded(newTotal)
-
     companion object {
         fun latest(total: Int, count: Double = 60.0): ChartViewport {
             val available = total.coerceAtLeast(1).toDouble()
@@ -43,13 +39,61 @@ internal data class ChartPaneLayout(val plotWidth: Float, val priceHeight: Float
     val plotHeight get() = priceHeight + macdHeight
 }
 
-internal fun chartPaneLayout(width: Float, height: Float, axisWidth: Float, timeHeight: Float): ChartPaneLayout {
+internal const val BTC_CHART_ID = "BTC"
+
+internal fun chartPaneLayout(width: Float, height: Float, axisWidth: Float, timeHeight: Float, showMacd: Boolean = true): ChartPaneLayout {
     val plotHeight = (height - timeHeight).coerceAtLeast(1f)
-    return ChartPaneLayout((width - axisWidth).coerceAtLeast(1f), plotHeight * 0.7f, plotHeight * 0.3f)
+    return ChartPaneLayout((width - axisWidth).coerceAtLeast(1f), plotHeight * if (showMacd) 0.7f else 1f, if (showMacd) plotHeight * 0.3f else 0f)
 }
 
 /** Match real timestamps, never assume two retained series end on the same candle. */
 internal fun alignedMacd(times: List<Long>, model: MacdModel?): List<MacdPoint?> {
     val byTime = model?.points?.associateBy { it.timestamp }.orEmpty()
     return times.map { byTime[it] }
+}
+
+/** Resolve directly against the current timestamps; no post-draw index rebasing. */
+internal data class ChartWindow(val firstTime: Double = Double.NaN, val count: Double = 60.0, val following: Boolean = true) {
+    fun viewport(times: List<Long>): ChartViewport =
+        if (following || !firstTime.isFinite() || times.isEmpty()) ChartViewport.latest(times.size, count)
+        else ChartViewport((firstTime-times.first())/MACD_INTERVAL, count).bounded(times.size)
+
+    fun moved(next: ChartViewport, times: List<Long>, follow: Boolean = false): ChartWindow {
+        val bounded = next.bounded(times.size)
+        return ChartWindow((times.firstOrNull() ?: 0L) + bounded.first*MACD_INTERVAL, bounded.count, follow)
+    }
+}
+
+/** Auto uses only the visible candles. A gesture freezes a finite manual range. */
+internal data class ChartScale(val low: Double = Double.NaN, val high: Double = Double.NaN) {
+    val automatic get() = !low.isFinite() || !high.isFinite() || high <= low
+    fun range(auto: ChartRange) = if (automatic) auto else ChartRange(low, high)
+
+    fun transformed(auto: ChartRange, zoom: Double, panFraction: Double, anchorFraction: Double = 0.5): ChartScale {
+        if (!zoom.isFinite() || zoom <= 0 || !panFraction.isFinite() || !anchorFraction.isFinite()) return this
+        val current = range(auto)
+        val span = current.high-current.low
+        if (!span.isFinite() || span <= 0) return this
+        val anchor = anchorFraction.coerceIn(0.0, 1.0)
+        val shown = (span/zoom).coerceIn(0.01, 1e16)
+        val top = (current.high-span*anchor+shown*anchor+panFraction*shown).coerceIn(-1e19, 1e19)
+        // Keep distinct representable bounds even after extreme pan/zoom sequences.
+        return ChartScale(top-maxOf(shown,Math.ulp(top)*8), top)
+    }
+}
+
+internal fun <T> chartVisible(values: List<T>, viewport: ChartViewport): List<T> {
+    val from = floor(viewport.first).toInt().coerceIn(0, values.size)
+    val until = ceil(viewport.first+viewport.count).toInt().coerceIn(from, values.size)
+    return values.subList(from, until)
+}
+
+internal fun chartPriceRange(candles: List<PriceCandle>, viewport: ChartViewport): ChartRange =
+    chartVisible(candles, viewport).let { if (it.isEmpty()) ChartRange(0.0, 1.0) else priceRange(it) }
+
+internal fun chartMacdRange(points: List<MacdPoint?>, viewport: ChartViewport): ChartRange {
+    val values = chartVisible(points, viewport).filterNotNull().flatMap { listOf(it.macd, it.signal, it.histogram) } + 0.0
+    val low = values.min(); val high = values.max()
+    val pad = maxOf((high-low)*0.12, 1.0)
+    return ChartRange(low-pad, high+pad)
 }

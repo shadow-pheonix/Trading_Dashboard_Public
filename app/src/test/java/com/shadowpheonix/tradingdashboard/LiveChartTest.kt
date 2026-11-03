@@ -73,7 +73,7 @@ class LiveChartTest {
         assertEquals(0.0,max.transform(256,1.0,100.0,0.5).first,0.0)
         assertEquals(160.0,max.transform(256,1.0,-100.0,0.5).first,0.0)
         assertEquals(255,ChartViewport.latest(256).indexAt(1.0,256))
-        assertEquals(195.0,ChartViewport.latest(256).rebased(current,current+MACD_INTERVAL,256,255).first,0.0)
+        assertEquals(195.0,ChartWindow().viewport((1..255).map {current+it*MACD_INTERVAL}).first,0.0)
     }
 
     @Test fun diskCacheStoresClosedHistoryOnlyAndDoesNotRetainPartialMacd()=runBlocking {
@@ -130,7 +130,7 @@ class LiveChartTest {
             100.0,180.0,"confirmed")
         val initial=value().copy(tradeAnnotations=listOf(trade),annotationStatus="ok",annotationSampledAt=now)
         var state=DashboardState(macd=initial,now=now)
-        var view=ChartViewport.latest(256)
+        val window=ChartWindow()
         val range=priceRange(initial.candles.takeLast(59)+initial.formingCandle!!,listOf(trade.stopPrice!!))
         for (step in 1..3) {
             // The one-second UI ticker has not reached the newly sampled response yet.
@@ -145,8 +145,7 @@ class LiveChartTest {
             assertEquals(listOf(trade),stops)
             assertEquals(256,chartModel(state.macd,"M1",state.now)!!.points.size)
             assertEquals(range,priceRange(candles.takeLast(60),stops.mapNotNull { it.stopPrice }))
-            view=view.rebased(initial.candles.first().timestamp,candles.first().timestamp,256,candles.size)
-            assertEquals(ChartViewport.latest(256),view)
+            assertEquals(ChartViewport.latest(256),window.viewport(candles.map {it.timestamp}))
             assertEquals(sampledAt+50,state.now)
         }
     }
@@ -186,9 +185,82 @@ class LiveChartTest {
         assertEquals(listOf(trade),trades)
         assertEquals(255,entryChartMarkers(trades,times).single().index)
         val first=old.candles.first().timestamp
-        assertEquals(ChartViewport.latest(256),ChartViewport.latest(256).rebased(first,times.first(),256,256))
-        val panned=ChartViewport(20.0,60.0).rebased(first,times.first(),256,256)
+        assertEquals(ChartViewport.latest(256),ChartWindow().viewport(times))
+        val oldTimes=chartTimes(old,chartCandles(old,now),chartModel(old,"M1",now))
+        val panned=ChartWindow().moved(ChartViewport(20.0,60.0),oldTimes).viewport(times)
         assertEquals(ChartViewport(19.0,60.0),panned)
         assertEquals(first+20*MACD_INTERVAL,times.first()+panned.first.toLong()*MACD_INTERVAL)
+    }
+
+    @Test fun manualRefreshDoesNotReplaceAnOnlineChartWithItsClosedOnlyDiskCopy()=runBlocking {
+        val trade=ChartTradeAnnotation("a".repeat(24),"M1","A","SHORT",current-MACD_INTERVAL,100.0,180.0,"confirmed")
+        val online=value().copy(tradeAnnotations=listOf(trade),annotationStatus="ok",annotationSampledAt=now)
+        val saved=online.withoutLivePreview().withoutTradeAnnotations()
+        var state=DashboardState(now=now);var requests=0;var loads=0
+        val gate=CompletableDeferred<Unit>()
+        val cache=object:MacdCache {
+            override suspend fun load(connection:Connection):MacdSnapshot { loads++;return saved }
+            override suspend fun save(connection:Connection,value:MacdSnapshot){}
+            override suspend fun forget(id:String){}
+        }
+        val session=MacdSession(this,{requests++;if(requests>1)gate.await();online},
+            {state=state.withMacdSnapshot(it,now)},{fail(it)},pause={awaitCancellation()},cache=cache,
+            onCached={state=state.copy(macd=it,macdCached=true)})
+        try {
+            session.select(connection,true);repeat(20){yield()}
+            assertFalse(state.macdCached);assertEquals(256,chartCandles(state.macd,now).size)
+            session.select(connection,true,refresh=true);repeat(20){yield()}
+            assertEquals(2,requests)
+            assertFalse("Refresh must retain the accepted live snapshot while fetching",state.macdCached)
+            assertEquals(1,loads)
+            assertEquals(online,state.macd)
+            assertEquals(256,chartCandles(state.macd,now,state.macdCached).size)
+            assertEquals(listOf(trade),visibleTradeAnnotations(state.macd,"M1",now,state.macdCached,false))
+            gate.complete(Unit);repeat(20){yield()}
+            session.close();session.select(connection,true);repeat(20){yield()}
+            assertEquals(2,loads) // A new foreground session still loads the safe disk copy.
+        } finally {session.close()}
+    }
+
+    @Test fun expiringALiveSampleLeavesOneEmptySlotInsteadOfShiftingTheTimeAxis() {
+        val v=value()
+        val live=chartTimes(v,chartCandles(v,now),chartModel(v,"M1",now))
+        for (hidden in listOf(v.withoutLivePreview(),v)) {
+            val expired=now+15_001
+            val candles=chartCandles(hidden,expired)
+            val model=chartModel(hidden,"M1",expired)
+            val times=chartTimes(hidden,candles,model)
+            assertEquals(live,times);assertEquals(256,times.size)
+            assertEquals(255,candles.size)
+            assertNull(alignedMacd(times,model).last())
+            assertEquals(ChartWindow().viewport(live),ChartWindow().viewport(times))
+        }
+    }
+
+    @Test fun cancelledRefreshCannotOverwriteTheNextResponseAndCredentialsNeverReuseOnlineData()=runBlocking {
+        val old=value();val newer=old.copy(generatedAt=now+100)
+        val gate=CompletableDeferred<Unit>();val values=mutableListOf<MacdSnapshot>()
+        var requests=0;var loads=0
+        val cache=object:MacdCache {
+            override suspend fun load(connection:Connection):MacdSnapshot? {loads++;return null}
+            override suspend fun save(connection:Connection,value:MacdSnapshot){}
+            override suspend fun forget(id:String){}
+        }
+        val session=MacdSession(this,{
+            requests++
+            if(requests==2) withContext(NonCancellable){gate.await();old}
+            else if(requests>2)newer else old
+        },{values.add(it)},{fail(it)},pause={awaitCancellation()},cache=cache)
+        try {
+            session.select(connection,true);repeat(20){yield()}
+            session.select(connection,true,refresh=true);repeat(20){yield()}
+            session.select(connection,true,refresh=true);repeat(20){yield()}
+            gate.complete(Unit);repeat(20){yield()}
+            assertEquals(listOf(old,newer),values);assertEquals(1,loads)
+            session.select(connection.copy(accessKey="y".repeat(43)),true);repeat(20){yield()}
+            assertEquals(2,loads)
+            session.select(connection.copy(id="other"),true);repeat(20){yield()}
+            assertEquals(3,loads)
+        } finally {gate.complete(Unit);session.close()}
     }
 }

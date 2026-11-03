@@ -99,16 +99,19 @@ class MacdSession(private val scope: CoroutineScope,
     private val onRefreshing: () -> Unit = {}) {
     private var job: Job? = null
     private var active: Connection? = null
+    private var online: MacdSnapshot? = null
     fun select(connection: Connection?, enabled: Boolean, refresh: Boolean = false) {
         if (!enabled || connection == null) { close(); return }
         if (!refresh && active?.id == connection.id && active?.accessKey == connection.accessKey && job?.isActive == true) return
+        val continuing = online.takeIf { active?.id == connection.id && active?.accessKey == connection.accessKey && job?.isActive == true }
         close(); active = connection
+        online = continuing
         job = scope.launch {
-            var retained = try { cache?.load(connection) }
+            var retained = continuing ?: try { cache?.load(connection) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { null }
             ensureActive()
-            retained?.let(onCached)
+            if (continuing == null) retained?.let(onCached)
             while (true) {
                 try {
                     val value = fetch(connection)
@@ -132,12 +135,13 @@ class MacdSession(private val scope: CoroutineScope,
                                 retained?.candles != merged.candles || retained?.candleStatus != merged.candleStatus ||
                                 retained?.chartModels != merged.chartModels || retained?.chartWindow != merged.chartWindow
                             retained = merged
+                            online = merged
                             onValue(merged)
                             try { if (changed) cache?.save(connection, merged) }
                             catch (e: CancellationException) { throw e }
                             catch (_: Exception) { /* Cache failure does not block online charts. */ }
                         }
-                    } else if (retained == null) onValue(value)
+                    } else if (retained == null) { online = value; onValue(value) }
                     if (value.status == "loading") onRefreshing()
                     if (value.status == "failed") onError("MACD source unavailable · retrying. Saved indicators shown when available.")
                     pause(if (value.status == "loading" || value.candleStatus == "loading") 2_000 else if (value.chartWindow == 256) 5_000 else 30_000)
@@ -151,5 +155,5 @@ class MacdSession(private val scope: CoroutineScope,
         if (pending != null) close()
         scope.launch { pending?.cancelAndJoin(); cache?.forget(id) }
     }
-    fun close() { job?.cancel(); job = null; active = null }
+    fun close() { job?.cancel(); job = null; active = null; online = null }
 }

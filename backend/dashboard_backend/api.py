@@ -242,19 +242,22 @@ class Application:
                 return
             instance, token, period, account, mode = resolved
             alerts = scope["path"] == "/v2/alerts/live"
+            # An opt-in header preserves the original outbox-only API for old apps.
+            pnl_alerts = alerts and [v for k, v in scope.get("headers", [])
+                                    if k.lower() == b"x-dashboard-pnl"] == [b"1"]
             version = 2 if scope["path"] == "/v2/live" else 1
             await send({"type": "websocket.accept"})
             requested_symbols = ({a.symbol for a in instance.accounts if account == "all" or (a.strategy if version == 2 else a.id) == account}
                                  if mode == "real" else set())
             if version == 2 and mode == "real":
                 requested_symbols.add("BTCUSDT")
-            if alerts:
+            if alerts and not pnl_alerts:
                 requested_symbols = set()
             if requested_symbols:
                 await self.subscribe(requested_symbols)
                 symbols = requested_symbols
             receiver = asyncio.create_task(receive())
-            if symbols:
+            if symbols and not alerts:
                 await asyncio.to_thread(self.prices.wait_ready, symbols)
             last_raw = None
             cursor = self.alert_cursor(scope) if alerts else 0
@@ -269,12 +272,17 @@ class Application:
                          else await asyncio.to_thread(self.files.build, *args, **options))
                 if value is None:
                     raise InvalidData()
+                if pnl_alerts:
+                    value['openPnl'] = await asyncio.to_thread(self.files.pnl_sample, instance, self.prices, self.clock())
                 raw = encode(value).decode("utf-8")
                 # Events are delivered immediately; unchanged metadata needs no
                 # empty acknowledgement or application heartbeat. Uvicorn sends
                 # the single protocol keepalive, including on idle feeds.
-                marker = encode({key: item for key, item in value.items()
-                                 if key not in ('generatedAt', 'events')}) if alerts else None
+                metadata = {key: item for key, item in value.items() if key not in ('generatedAt', 'events')}
+                if pnl_alerts and metadata.get('openPnl') is not None:
+                    metadata['openPnl'] = {key: item for key, item in metadata['openPnl'].items()
+                                           if key not in ('sampledAt', 'priceUpdatedAt')}
+                marker = encode(metadata) if alerts else None
                 if not alerts or value['events'] or marker != last_raw:
                     await send({"type": "websocket.send", "text": raw})
                     last_raw = marker

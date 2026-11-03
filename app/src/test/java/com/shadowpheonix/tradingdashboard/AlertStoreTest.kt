@@ -58,6 +58,24 @@ class AlertStoreTest {
         assertEquals(listOf("event-3"), replayAlerts(reopened.load("main"), batch(3)).notifications.map { it.id })
     }
 
+    @Test fun mutedPnlCrossingsPersistWithCursorAndDoNotReplayWhenUnmuted() {
+        val memory=MemoryPreferences()
+        val store=AlertStore(memory.prefs)
+        fun batch(value: Double,at: Long)=AlertBatch(1,AlertSource("main","Main"),"ready",emptyList(),0,0,0,false,false,
+            AlertPnlSample("a".repeat(64),value,3,at,at))
+        store.save("main",replayAlerts(AlertLedger(),batch(900.0,100_000),100_000).ledger)
+        store.notificationsEnabled("main",false)
+        val delivery=replayAlerts(store.load("main"),batch(1050.0,103_000),103_000)
+        assertEquals(1,delivery.notifications.size);assertFalse(store.canNotify("main"))
+        store.save("main",delivery.ledger)
+        val reopened=AlertStore(memory.prefs)
+        reopened.notificationsEnabled("main",true)
+        assertEquals(delivery.ledger,reopened.load("main"))
+        assertTrue(replayAlerts(reopened.load("main"),batch(1050.0,106_000),106_000).notifications.isEmpty())
+        assertNull(reopened.load("vinay").pnl)
+        reopened.forget("main");assertNull(reopened.load("main").pnl)
+    }
+
     @Test fun forgettingRemovesOnlyThatInstancesHistoryAndPreference() {
         val store = AlertStore(MemoryPreferences().prefs)
         store.notificationsEnabled("main", false)

@@ -41,7 +41,7 @@ fun AlertsCard(enabled: Boolean, onChange: (Boolean) -> Unit, status: List<Pair<
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Bot alerts", style = MaterialTheme.typography.titleMedium)
-                Text("Trades, risk and bot reports", fontSize = 12.sp, color = muted)
+                Text("Trades, P&L milestones, risk and reports", fontSize = 12.sp, color = muted)
             }
             Switch(checked = enabled, onCheckedChange = onChange)
         }
@@ -75,7 +75,7 @@ fun AlertInboxPage(connections: List<Connection>, history: Map<String, List<Dash
     val colors = MaterialTheme.colorScheme
     val zone = ZoneId.systemDefault()
     Scaffold(containerColor = colors.background, topBar = {
-        TopAppBar(title = { Column { Text("Alerts"); Text("Actual bot events", fontSize = 12.sp, color = colors.onSurfaceVariant) } },
+        TopAppBar(title = { Column { Text("Alerts"); Text("Bot events and P&L milestones", fontSize = 12.sp, color = colors.onSurfaceVariant) } },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background))
     }) { padding ->

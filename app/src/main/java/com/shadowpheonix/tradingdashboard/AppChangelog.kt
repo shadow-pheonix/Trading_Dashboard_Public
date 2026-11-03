@@ -26,10 +26,16 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // Replace this list with the changes included in each release. The installed
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
+    ChangelogChange(ChangelogCategory.NewFeatures,
+        "Open the main BTC chart full screen with all three models’ labelled entry arrows and stop-loss lines. Toggle all overlays together; the price chart uses the entire plot without MACD."),
+    ChangelogChange(ChangelogCategory.NewFeatures,
+        "Receive alerts when combined open P&L crosses positive or negative $1,000 levels within each instance, including re-crossings. Current P&L appears in the alert; instance notification controls still apply."),
+    ChangelogChange(ChangelogCategory.NewFeatures,
+        "Drag the right-hand price or MACD axis to set a manual vertical scale, then pan and pinch freely. Double-tap an axis or tap Auto to restore automatic scaling."),
+    ChangelogChange(ChangelogCategory.Improvements,
+        "Automatic price scaling now fits the visible candles without zooming out for distant stop-loss lines. Drag the time axis to zoom, or use Follow latest to resume live scrolling."),
     ChangelogChange(ChangelogCategory.BugFixes,
-        "Live chart refreshes no longer briefly hide the forming candle and trade markers, causing the chart to jump or change scale."),
-    ChangelogChange(ChangelogCategory.BugFixes,
-        "Full-screen MACD history can now extend across all 256 candle slots when finalized exchange closes differ from the bot's captured inputs."),
+        "Refreshing keeps the current chart visible while fetching new data. Stable time slots and axis widths prevent extra jumps when live samples or trade markers become unavailable."),
 )
 
 @Composable

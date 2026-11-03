@@ -33,7 +33,7 @@ internal fun visibleTradeAnnotations(value: MacdSnapshot?, modelId: String, now:
     if (value == null || cached || refreshFailed || value.annotationStatus !in setOf("ok", "partial")) return emptyList()
     val sampled = value.annotationSampledAt ?: return emptyList()
     if (now < sampled || now - sampled > 90_000) return emptyList()
-    return value.tradeAnnotations.filter { it.modelId == modelId }
+    return value.tradeAnnotations.filter { modelId == BTC_CHART_ID || it.modelId == modelId }
 }
 
 /** The opening time, not the signal or state-file modification time, selects the bucket. */
@@ -52,11 +52,12 @@ internal fun entryAnnotationLabel(trade: ChartTradeAnnotation) =
 internal data class EntryChartMarker(val index: Int, val side: String, val trades: List<ChartTradeAnnotation>)
 
 internal fun entryChartMarkers(trades: List<ChartTradeAnnotation>, times: List<Long>): List<EntryChartMarker> =
-    trades.mapNotNull { trade -> entryCandleIndex(trade, times)?.takeIf { it in times.indices }?.let { (it to trade.side) to trade } }
+    trades.mapNotNull { trade -> entryCandleIndex(trade, times)?.takeIf { it in times.indices }?.let { Triple(it, trade.side, trade.modelId) to trade } }
         .groupBy({ it.first }, { it.second }).map { (key, group) -> EntryChartMarker(key.first, key.second, group) }
-        .sortedWith(compareBy({ it.index }, { it.side }))
+        .sortedWith(compareBy({ it.index }, { it.side }, { it.trades.first().modelId }))
 
-internal fun entryAnnotationLabel(marker: EntryChartMarker): String {
+internal fun entryAnnotationLabel(marker: EntryChartMarker, includeModel: Boolean = false): String {
+    if (includeModel) return marker.trades.first().modelId + " " + entryAnnotationLabel(marker)
     if (marker.trades.size == 1) return entryAnnotationLabel(marker.trades.first())
     val wallets = marker.trades.map { it.wallet }.filter { it.isNotEmpty() }.distinct().sorted().joinToString("/")
     val price = marker.trades.map { it.entryPrice }.distinct().singleOrNull()?.let(::tradePrice) ?: "${marker.trades.size} entries"
@@ -80,7 +81,14 @@ internal fun entryLabelRect(x: Float, y: Float, width: Float, height: Float, plo
     return candidates.firstOrNull { candidate -> occupied.none { it.overlaps(candidate) } } ?: candidates.first()
 }
 
-internal fun stopAnnotationLabel(trades: List<ChartTradeAnnotation>): String {
+internal fun stopAnnotationLabel(trades: List<ChartTradeAnnotation>, includeModel: Boolean = false): String {
+    if (includeModel) {
+        val owners = trades.groupBy { it.modelId }.toSortedMap().map { (model, group) ->
+            val wallets = group.map { it.wallet }.filter { it.isNotEmpty() }.distinct().sorted().joinToString("/")
+            listOf(model, wallets).filter { it.isNotEmpty() }.joinToString(" ")
+        }.joinToString(" · ")
+        return "$owners ${if (trades.any { it.stopState == "pending" }) "SL?" else "SL"} ${tradePrice(trades.first().stopPrice!!)}"
+    }
     val wallets = trades.map { it.wallet }.filter { it.isNotEmpty() }.distinct().sorted().joinToString("/")
     val pending = trades.any { it.stopState == "pending" }
     return listOf(if (pending) "SL?" else "SL", wallets, tradePrice(trades.first().stopPrice!!))

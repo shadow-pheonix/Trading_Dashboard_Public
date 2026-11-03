@@ -5,8 +5,10 @@ import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -40,6 +43,13 @@ import androidx.core.view.WindowInsetsControllerCompat
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.exp
+
+private val chartWindowSaver = listSaver<ChartWindow, Any>(
+    save = { listOf(it.firstTime, it.count, it.following) },
+    restore = { ChartWindow(it[0] as Double, it[1] as Double, it[2] as Boolean) })
+private val chartScaleSaver = listSaver<ChartScale, Double>(
+    save = { listOf(it.low, it.high) }, restore = { ChartScale(it[0], it[1]) })
 
 @Composable
 internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: () -> Unit, onRefresh: () -> Unit) {
@@ -51,43 +61,45 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
         controller?.hide(WindowInsetsCompat.Type.systemBars())
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
+    val showMacd = modelId != BTC_CHART_ID
+    val priceFraction = if (showMacd) 0.7f else 1f
     val value = state.macd
     val candles = chartCandles(value, state.now, state.macdCached, state.macdError != null)
     val model = chartModel(value, modelId, state.now, state.macdCached, state.macdError != null)
     val live = formingIsFresh(value, state.now, state.macdCached, state.macdError != null)
-    val times = candles.map { it.timestamp }.ifEmpty { model?.points?.map { it.timestamp }.orEmpty() }
+    val times = chartTimes(value, candles, model)
     val aligned = remember(times, model) { alignedMacd(times, model) }
-    val annotations = visibleTradeAnnotations(value, modelId, state.now, state.macdCached, state.macdError != null)
+    var showOverlays by rememberSaveable(state.active?.id, modelId) { mutableStateOf(true) }
+    val annotations = if (showOverlays) visibleTradeAnnotations(value, modelId, state.now, state.macdCached, state.macdError != null) else emptyList()
     val colors = MaterialTheme.colorScheme
     val scope = "${state.active?.id}:$modelId"
-    var first by rememberSaveable(scope) { mutableDoubleStateOf(ChartViewport.latest(times.size).first) }
-    var count by rememberSaveable(scope) { mutableDoubleStateOf(minOf(60.0, times.size.coerceAtLeast(1).toDouble())) }
-    var previousFirst by rememberSaveable(scope) { mutableStateOf(times.firstOrNull()) }
-    var previousTotal by rememberSaveable(scope) { mutableIntStateOf(times.size) }
+    var window by rememberSaveable(scope, stateSaver = chartWindowSaver) { mutableStateOf(ChartWindow()) }
+    var priceScale by rememberSaveable(scope, stateSaver = chartScaleSaver) { mutableStateOf(ChartScale()) }
+    var macdScale by rememberSaveable(scope, stateSaver = chartScaleSaver) { mutableStateOf(ChartScale()) }
     var selectedTime by rememberSaveable(scope) { mutableStateOf<Long?>(null) }
     var inspecting by rememberSaveable(scope) { mutableStateOf(false) }
-    val viewport = ChartViewport(first, count).bounded(times.size)
-    fun setWindow(next: ChartViewport) { first = next.first; count = next.count }
-    fun latest() { setWindow(ChartViewport.latest(times.size)); selectedTime = null; inspecting = false }
-    LaunchedEffect(times.firstOrNull(), times.size) {
-        times.firstOrNull()?.let { start ->
-            setWindow(previousFirst?.let { viewport.rebased(it, start, previousTotal, times.size) }
-                ?: ChartViewport.latest(times.size))
-            previousFirst = start; previousTotal = times.size
-            if (selectedTime != null && selectedTime !in times) { selectedTime = null; inspecting = false }
-        }
-    }
+    val viewport = window.viewport(times)
+    val priceRange = priceScale.range(chartPriceRange(candles, viewport))
+    val indicatorRange = macdScale.range(chartMacdRange(aligned, viewport))
+    fun setWindow(next: ChartViewport, follow: Boolean = window.following) { window = window.moved(next, times, follow) }
+    fun latest() { window = ChartWindow(); selectedTime = null; inspecting = false }
+    fun autoScales() { priceScale = ChartScale(); macdScale = ChartScale() }
+    fun reset() { latest(); autoScales() }
     val selectedIndex = times.indexOf(selectedTime).takeIf { inspecting && it >= 0 }
     val selectedTrades = annotations.filter { inspecting && it.enteredAt / MACD_INTERVAL * MACD_INTERVAL == selectedTime }
-    val candle = selectedTime?.takeIf { inspecting }?.let { stamp -> candles.find { it.timestamp == stamp } }
-        ?: candles.lastOrNull()
+    val candle = if (inspecting) selectedTime?.let { stamp -> candles.find { it.timestamp == stamp } } else candles.lastOrNull()
     Column(Modifier.fillMaxSize().background(colors.background).windowInsetsPadding(WindowInsets.displayCutout)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to Strategies") }
             Column(Modifier.weight(1f)) {
-                Text(strategyLabel(modelId), fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(if (showMacd) strategyLabel(modelId) else "BTC / USDT", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 Text("${state.active?.label.orEmpty()} · BTC / USDT · 15m", fontSize = 11.sp,
                     color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (!showMacd) IconToggleButton(checked = showOverlays, onCheckedChange = { showOverlays = it }) {
+                Icon(if (showOverlays) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                    if (showOverlays) "Hide all model entries and stop losses" else "Show all model entries and stop losses",
+                    tint = if (showOverlays) colors.primary else colors.onSurfaceVariant)
             }
             IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, "Refresh chart") }
         }
@@ -109,24 +121,27 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             else if (value.chartMacdStatus == "failed") "Live MACD unavailable" else "MACD history · Live unavailable"
         } else (if (value?.source == "bot_spot_closed") "Bot MACD" else "Public MACD") +
             if (macdIsStale(value, state.now)) " · Stale" else ""
-        Text((if (state.macdError != null) "Refresh failed · Saved chart · " else if (state.macdCached) "Saved chart · " else "") + "$priceStatus · $macdStatus",
+        Text((if (state.macdError != null) "Refresh failed · Saved chart · " else if (state.macdCached) "Saved chart · " else "") + if (showMacd) "$priceStatus · $macdStatus" else priceStatus,
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), color = colors.onSurfaceVariant,
-            fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            fontSize = 10.sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
         val annotationNote = when {
+            !showOverlays -> "All model entries and stop losses hidden"
             annotations.any { it.stopState == "pending" } -> "Saved entries · SL? means protection pending"
             annotations.any { it.stopPrice == null } -> "Saved entries · SL unavailable"
-            annotations.any { it.enteredAt / MACD_INTERVAL * MACD_INTERVAL > (times.lastOrNull() ?: 0L) } -> "Entry candle unavailable · Waiting for price data"
+            annotations.any { it.enteredAt / MACD_INTERVAL * MACD_INTERVAL > (candles.lastOrNull()?.timestamp ?: 0L) } -> "Entry candle unavailable · Waiting for price data"
             value?.annotationStatus == "partial" -> "Some trade markers unavailable"
             value?.annotationStatus != "ok" || state.macdCached || state.macdError != null ||
                 value.annotationSampledAt?.let { state.now < it || state.now - it > 90_000 } != false -> "Trade markers unavailable"
-            annotations.isNotEmpty() -> "Saved trade entries and current SL"
-            else -> "No recorded open entries for this model"
+            annotations.isNotEmpty() -> "Saved entries · Drag price axis to view distant SL"
+            else -> if (showMacd) "No recorded open entries for this model" else "No recorded open entries across M1 / M2 / M3"
         }
         Text(annotationNote, Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
             color = colors.onSurfaceVariant, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        selectedTrades.forEach { trade -> Text(entryAnnotationLabel(trade) + " · " +
-            (trade.stopPrice?.let { stopAnnotationLabel(listOf(trade)) } ?: "SL unavailable"),
-            Modifier.padding(horizontal = 14.dp), color = colors.onSurfaceVariant, fontSize = 10.sp) }
+        if (inspecting) Text(selectedTrades.joinToString("\n") { trade -> (if (showMacd) "" else "${trade.modelId} ") + entryAnnotationLabel(trade) + " · " +
+            (trade.stopPrice?.let { stopAnnotationLabel(listOf(trade)) } ?: "SL unavailable") }
+                .ifEmpty { "No recorded entry on selected candle" },
+            Modifier.padding(horizontal = 14.dp), color = colors.onSurfaceVariant, fontSize = 10.sp,
+            minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (times.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(if (value == null || value.status == "loading" || value.candleStatus == "loading") "Loading chart…"
@@ -134,8 +149,10 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             }
         } else {
             InteractiveModelCanvas(candles, times, model, aligned, annotations, viewport, selectedIndex, inspecting,
+                priceRange, indicatorRange, priceScale, macdScale, window.following, showMacd, priceFraction,
                 onWindow = ::setWindow, onInspect = { index -> selectedTime = times[index]; inspecting = true },
-                onLatest = ::latest, modifier = Modifier.weight(1f).fillMaxWidth())
+                onPriceScale = { priceScale = it }, onMacdScale = { macdScale = it },
+                onLatest = ::latest, onReset = ::reset, modifier = Modifier.weight(1f).fillMaxWidth())
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             IconToggleButton(checked = inspecting, onCheckedChange = {
@@ -147,56 +164,89 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
                 enabled = times.isNotEmpty() && viewport.count < minOf(96,times.size)) { Icon(Icons.Outlined.Remove, "Zoom out") }
             IconButton(onClick = { setWindow(viewport.zoomControl(times.size, 1.35)) },
                 enabled = times.isNotEmpty() && viewport.count > minOf(12, times.size)) { Icon(Icons.Outlined.Add, "Zoom in") }
-            IconButton(onClick = ::latest, enabled = times.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.LastPage, "Return to latest candles") }
+            IconButton(onClick = ::latest, enabled = times.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.LastPage, "Follow latest candles",
+                tint = if (window.following) colors.primary else colors.onSurfaceVariant) }
+            TextButton(onClick = ::autoScales, modifier = Modifier.semantics { contentDescription = "Reset vertical scales to automatic" }) {
+                Text("Auto", color = if (priceScale.automatic && (!showMacd || macdScale.automatic)) colors.primary else colors.onSurfaceVariant)
+            }
         }
         Text(if (inspecting) "Drag to inspect · Tap crosshair to pan"
-            else "Pinch to zoom · Drag to pan · Hold to inspect", color = colors.onSurfaceVariant,
-            fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp))
+            else if (!priceScale.automatic) "Drag chart freely · Drag price axis to scale\nDouble-tap price axis or tap Auto to reset"
+            else "Drag to pan · Pinch to zoom · Hold to inspect\nDrag price axis to unlock · Drag time axis to zoom", color = colors.onSurfaceVariant,
+            minLines = 2, maxLines = 2, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp))
     }
 }
 
 @Composable
 private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>, model: MacdModel?,
     aligned: List<MacdPoint?>, annotations: List<ChartTradeAnnotation>, viewport: ChartViewport, selectedIndex: Int?, inspecting: Boolean,
-    onWindow: (ChartViewport) -> Unit, onInspect: (Int) -> Unit, onLatest: () -> Unit, modifier: Modifier) {
+    priceRange: ChartRange, indicatorRange: ChartRange, priceScale: ChartScale, macdScale: ChartScale, following: Boolean, showMacd: Boolean, priceFraction: Float,
+    onWindow: (ChartViewport, Boolean) -> Unit, onInspect: (Int) -> Unit,
+    onPriceScale: (ChartScale) -> Unit, onMacdScale: (ChartScale) -> Unit,
+    onLatest: () -> Unit, onReset: () -> Unit, modifier: Modifier) {
     val colors = MaterialTheme.colorScheme
     val measurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 10.sp, color = colors.onSurfaceVariant)
-    val stopLabels = annotations.filter { it.stopPrice != null }.groupBy { it.stopPrice }.values.map(::stopAnnotationLabel)
-    val priceWidth = (stopLabels + chartNumber(candles.maxOfOrNull { it.high } ?: 80000.0))
-        .maxOf { measurer.measure(it, labelStyle).size.width.toFloat() }
+    // Stable gutter: changing quotes, wallet labels and marker availability cannot resize the plot.
+    val priceWidth = measurer.measure("888,888.88", labelStyle).size.width.toFloat()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val axisWidth = with(density) { maxOf(64.dp.toPx(), priceWidth + 14.dp.toPx()) }
+    val axisWidthDp = with(density) { axisWidth.toDp() }
     val currentViewport by rememberUpdatedState(viewport)
     val currentInspecting by rememberUpdatedState(inspecting)
     val currentOnWindow by rememberUpdatedState(onWindow)
     val currentOnInspect by rememberUpdatedState(onInspect)
     val currentOnLatest by rememberUpdatedState(onLatest)
+    val currentOnReset by rememberUpdatedState(onReset)
+    val currentPriceRange by rememberUpdatedState(priceRange)
+    val currentIndicatorRange by rememberUpdatedState(indicatorRange)
+    val currentPriceScale by rememberUpdatedState(priceScale)
+    val currentMacdScale by rememberUpdatedState(macdScale)
+    val currentOnPriceScale by rememberUpdatedState(onPriceScale)
+    val currentOnMacdScale by rememberUpdatedState(onMacdScale)
+    val currentFollowing by rememberUpdatedState(following)
     val currentTotal by rememberUpdatedState(times.size)
+    var plotPrice by remember(model?.id) { mutableStateOf(true) }
     fun inspect(x: Float, width: Float) {
-        currentOnInspect(currentViewport.indexAt((x / (width - axisWidth).coerceAtLeast(1f)).toDouble(), currentTotal))
+        currentOnInspect(currentViewport.indexAt((x / width.coerceAtLeast(1f)).toDouble(), currentTotal))
     }
     val gestures = Modifier
-        .pointerInput(model?.id, axisWidth) {
-            detectTapGestures(onTap = { inspect(it.x, size.width.toFloat()) }, onDoubleTap = { currentOnLatest() })
+        .pointerInput(model?.id) {
+            detectTapGestures(onPress = { plotPrice = it.y < size.height*priceFraction },
+                onTap = { inspect(it.x, size.width.toFloat()) }, onDoubleTap = { currentOnReset() })
         }
-        .pointerInput(model?.id, axisWidth) {
+        .pointerInput(model?.id) {
             detectDragGesturesAfterLongPress(onDragStart = { inspect(it.x, size.width.toFloat()) }) { change, _ ->
                 change.consume(); inspect(change.position.x, size.width.toFloat())
             }
         }
-        .pointerInput(model?.id, axisWidth) {
+        .pointerInput(model?.id) {
             detectTransformGestures { centroid, pan, zoom, _ ->
-                val width = (size.width - axisWidth).coerceAtLeast(1f)
+                val width = size.width.toFloat().coerceAtLeast(1f)
                 if (currentInspecting && abs(zoom - 1f) < 0.001f) inspect(centroid.x + pan.x, size.width.toFloat())
-                else currentOnWindow(currentViewport.transform(currentTotal, zoom.toDouble(),
-                    (pan.x / width).toDouble(), (centroid.x / width).toDouble()))
+                else {
+                    val next = currentViewport.transform(currentTotal, zoom.toDouble(),
+                        (pan.x / width).toDouble(), (centroid.x / width).toDouble())
+                    currentOnWindow(next, currentFollowing && abs(pan.x) < 0.01f && next.first+next.count >= currentTotal-0.001)
+                    val height = size.height.toFloat()
+                    if (plotPrice && !currentPriceScale.automatic) {
+                        val top = 12.dp.toPx(); val span = (height*priceFraction-24.dp.toPx()).coerceAtLeast(1f)
+                        currentOnPriceScale(currentPriceScale.transformed(currentPriceRange,zoom.toDouble(),
+                            (pan.y/span).toDouble(),((centroid.y-top)/span).toDouble()))
+                    } else if (!plotPrice && !currentMacdScale.automatic) {
+                        val top = height*priceFraction+minOf(28.dp.toPx(),height*0.3f*0.3f)
+                        val span = (height-8.dp.toPx()-top).coerceAtLeast(1f)
+                        currentOnMacdScale(currentMacdScale.transformed(currentIndicatorRange,zoom.toDouble(),
+                            (pan.y/span).toDouble(),((centroid.y-top)/span).toDouble()))
+                    }
+                }
             }
         }
-    Canvas(modifier.then(gestures).semantics {
-        contentDescription = "${model?.id ?: "Model"} chart. Candles above MACD in a 70 to 30 split. Pinch to zoom, drag to pan, hold or use crosshair to inspect. ${times.size} candles available, including a forming candle when live data is available."
+    Box(modifier) {
+    Canvas(Modifier.matchParentSize().semantics {
+        contentDescription = (if (showMacd) "${model?.id ?: "Model"} chart. Candles above MACD in a 70 to 30 split." else "BTC chart. Price candles only, with all model overlays.") + " Pinch to zoom, drag to pan, hold or use crosshair to inspect. Drag the right axis for manual vertical scale. ${candles.size} candle samples across ${times.size} time slots; an unavailable forming slot stays empty."
     }) {
-        val layout = chartPaneLayout(size.width, size.height, axisWidth, 28.dp.toPx())
+        val layout = chartPaneLayout(size.width, size.height, axisWidth, 28.dp.toPx(), showMacd)
         val right = layout.plotWidth
         val priceTop = 12.dp.toPx(); val priceBottom = (layout.priceHeight - 12.dp.toPx()).coerceAtLeast(priceTop + 1)
         val macdTop = layout.priceHeight + minOf(28.dp.toPx(), layout.macdHeight * 0.30f)
@@ -206,29 +256,23 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
         val visibleIndices = from until until
         val step = right / viewport.count.toFloat()
         fun x(index: Int) = ((index + 0.5 - viewport.first) / viewport.count * right).toFloat()
-        val shownCandles = if (candles.isEmpty()) emptyList() else candles.subList(from, until)
+        val shownCandles = chartVisible(candles, viewport)
         val stops = if (candles.isEmpty()) emptyList() else annotations.mapNotNull { trade ->
             val index = entryCandleIndex(trade, times)
             if (index != null && trade.stopPrice != null && stopLineStart(index, viewport, right) != null) index to trade else null
         }
         val entries = if (candles.isEmpty()) emptyList() else entryChartMarkers(annotations, times).filter { it.index in visibleIndices }
-        val levels = stops.map { it.second.stopPrice!! } + entries.flatMap { it.trades.map { trade -> trade.entryPrice } }
-        val priceRange = if (shownCandles.isEmpty()) ChartRange(0.0, 1.0) else priceRange(shownCandles, levels)
         fun priceY(value: Double) = priceTop + (priceBottom - priceTop) * priceRange.fraction(value)
-        val macdValues = aligned.subList(from, until).filterNotNull().flatMap { listOf(it.macd, it.signal, it.histogram) } + 0.0
-        val minimum = macdValues.min(); val maximum = macdValues.max()
-        val pad = maxOf((maximum - minimum) * 0.12, 1.0)
-        val indicatorRange = ChartRange(minimum - pad, maximum + pad)
         fun macdY(value: Double) = macdTop + (macdBottom - macdTop) * indicatorRange.fraction(value)
         val line = colors.outlineVariant.copy(alpha = 0.42f)
         val dashed = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
         fun label(text: String, left: Float, top: Float, color: Color = colors.onSurfaceVariant) {
             drawText(measurer, text, topLeft = Offset(left, top), style = labelStyle.copy(color = color))
         }
-        data class PriceBadge(val text: String, val y: Float, val background: Color, val foreground: Color)
+        data class PriceBadge(val text: String, val y: Float, val background: Color, val foreground: Color, val inside: Boolean)
         val badges = mutableListOf<PriceBadge>()
-        fun axisBadge(text: String, y: Float, background: Color, foreground: Color) {
-            badges.add(PriceBadge(text, y, background, foreground))
+        fun axisBadge(text: String, y: Float, background: Color, foreground: Color, inside: Boolean = false) {
+            if (y in priceTop..priceBottom) badges.add(PriceBadge(text, y, background, foreground, inside))
         }
         for (i in 0..4) {
             val y = priceTop + (priceBottom - priceTop) * i / 4
@@ -268,24 +312,30 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
             }
         }
         stops.groupBy { it.second.stopPrice!! }.values.forEach { group ->
-            axisBadge(stopAnnotationLabel(group.map { it.second }), priceY(group.first().second.stopPrice!!), colors.error, colors.onError)
+            axisBadge(stopAnnotationLabel(group.map { it.second }, includeModel = !showMacd), priceY(group.first().second.stopPrice!!), colors.error, colors.onError, inside = true)
         }
         val occupied = mutableListOf<androidx.compose.ui.geometry.Rect>()
         clipRect(0f, priceTop, right, priceBottom) {
             entries.forEach { marker ->
-                val candle = candles[marker.index]
+                val candle = candles.getOrNull(marker.index) ?: return@forEach
                 val long = marker.side == "LONG"
                 val xx = x(marker.index)
                 val direction = if (long) 1f else -1f
                 val tip = if (long) priceY(candle.low) + 4.dp.toPx() else priceY(candle.high) - 4.dp.toPx()
-                val base = tip + direction * 9.dp.toPx()
+                if (tip !in priceTop..priceBottom) return@forEach
+                val stack = entries.filter { it.index == marker.index && it.side == marker.side }
+                val rank = stack.indexOf(marker)
+                val extent = (stack.size-1) * 16.dp.toPx() + 14.dp.toPx()
+                val firstTip = if (long) minOf(tip, priceBottom-extent) else maxOf(tip, priceTop+extent)
+                val arrowTip = firstTip + direction * rank * 16.dp.toPx()
+                val base = arrowTip + direction * 9.dp.toPx()
                 val color = if (long) colors.secondary else colors.error
                 val arrow = Path().apply {
-                    moveTo(xx, tip); lineTo(xx - 5.dp.toPx(), base); lineTo(xx + 5.dp.toPx(), base); close()
+                    moveTo(xx, arrowTip); lineTo(xx - 5.dp.toPx(), base); lineTo(xx + 5.dp.toPx(), base); close()
                 }
                 drawPath(arrow, color)
                 drawLine(color, Offset(xx, base), Offset(xx, base + direction * 5.dp.toPx()), 2.dp.toPx())
-                val text = measurer.measure(entryAnnotationLabel(marker), labelStyle.copy(color = color))
+                val text = measurer.measure(entryAnnotationLabel(marker, includeModel = !showMacd), labelStyle.copy(color = color))
                 val height = text.size.height + 6.dp.toPx()
                 val width = (text.size.width + 8.dp.toPx()).coerceAtMost(right)
                 val preferredY = if (long) base + 7.dp.toPx() else base - height - 7.dp.toPx()
@@ -296,6 +346,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
                 drawText(text, topLeft = rect.topLeft + Offset(4.dp.toPx(), 3.dp.toPx()))
             }
         }
+        if (showMacd) {
         val macdTicks = if (macdBottom - macdTop >= 64.dp.toPx()) 2 else 1
         for (i in 0..macdTicks) {
             val yy = macdTop + (macdBottom - macdTop) * i / macdTicks
@@ -304,7 +355,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
                 right + 6.dp.toPx(), yy - 6.dp.toPx())
         }
         val zero = macdY(0.0)
-        drawLine(line, Offset(0f, zero), Offset(right, zero), pathEffect = dashed)
+        if (zero in macdTop..macdBottom) drawLine(line, Offset(0f, zero), Offset(right, zero), pathEffect = dashed)
         clipRect(0f, macdTop, right, macdBottom) {
             visibleIndices.forEach { index -> aligned[index]?.let { point ->
                 drawLine((if (point.histogram >= 0) colors.secondary else colors.error).copy(alpha = 0.65f),
@@ -338,18 +389,23 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
                 drawText(measured, topLeft = Offset(legendX, legendY)); legendX += measured.size.width + 9.dp.toPx()
             }
         }
+        }
         selectedIndex?.takeIf { it in visibleIndices }?.let { index ->
             val xx = x(index).coerceIn(0f, right)
             drawLine(colors.onSurfaceVariant, Offset(xx, 0f), Offset(xx, layout.plotHeight), pathEffect = dashed)
             candles.getOrNull(index)?.let { selected ->
-                val yy = priceY(selected.close).coerceIn(priceTop, priceBottom)
-                drawLine(colors.onSurfaceVariant, Offset(0f, yy), Offset(right, yy), pathEffect = dashed)
-                drawCircle(colors.primary, 3.dp.toPx(), Offset(xx, yy))
-                axisBadge(chartNumber(selected.close), yy, colors.primary, colors.onPrimary)
+                val yy = priceY(selected.close)
+                if (yy in priceTop..priceBottom) {
+                    drawLine(colors.onSurfaceVariant, Offset(0f, yy), Offset(right, yy), pathEffect = dashed)
+                    drawCircle(colors.primary, 3.dp.toPx(), Offset(xx, yy))
+                    axisBadge(chartNumber(selected.close), yy, colors.primary, colors.onPrimary)
+                }
             }
-            aligned[index]?.let { selected ->
-                drawCircle(colors.primary, 3.dp.toPx(), Offset(xx, macdY(selected.macd)))
-                drawCircle(colors.secondary, 2.5.dp.toPx(), Offset(xx, macdY(selected.signal)))
+            if (showMacd) aligned[index]?.let { selected ->
+                clipRect(0f,macdTop,right,macdBottom) {
+                    drawCircle(colors.primary, 3.dp.toPx(), Offset(xx, macdY(selected.macd)))
+                    drawCircle(colors.secondary, 2.5.dp.toPx(), Offset(xx, macdY(selected.signal)))
+                }
             }
             val text = measurer.measure(chartTime(times[index], "dd MMM HH:mm"), labelStyle.copy(color = colors.onPrimary))
             val width = text.size.width + 10.dp.toPx()
@@ -361,6 +417,17 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
         val centers = priceLabelCenters(badges.map { it.y }, badgeHeight, priceTop, priceBottom)
         badges.forEachIndexed { index, badge ->
             val center = centers[index]
+            if (badge.inside) {
+                val text = measurer.measure(badge.text, labelStyle.copy(color = badge.foreground))
+                val width = (text.size.width+8.dp.toPx()).coerceAtMost(right)
+                clipRect(0f, priceTop, right, priceBottom) {
+                    if (abs(center-badge.y)>1.dp.toPx()) drawLine(badge.background,
+                        Offset(right-width,badge.y),Offset(right-width+2.dp.toPx(),center),1.dp.toPx())
+                    drawRect(badge.background, Offset(right-width,center-badgeHeight/2),Size(width,badgeHeight))
+                    drawText(text,topLeft=Offset(right-width+4.dp.toPx(),center-badgeHeight/2+3.dp.toPx()))
+                }
+                return@forEachIndexed
+            }
             if (abs(center - badge.y) > 1.dp.toPx()) drawLine(badge.background,
                 Offset(right, badge.y), Offset(right + 3.dp.toPx(), center), 1.dp.toPx())
             drawRect(badge.background, Offset(right + 3.dp.toPx(), center - badgeHeight / 2),
@@ -368,5 +435,39 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
             drawText(measurer, badge.text, topLeft = Offset(right + 6.dp.toPx(), center - badgeHeight / 2 + 3.dp.toPx()),
                 style = labelStyle.copy(color = badge.foreground))
         }
+    }
+    // Separate hit regions keep axis drags out of candle panning and crosshair detectors.
+    Row(Modifier.matchParentSize()) {
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            Box(Modifier.weight(1f).fillMaxWidth().then(gestures))
+            Box(Modifier.height(28.dp).fillMaxWidth()
+                .semantics { contentDescription = "Time axis. Drag horizontally to zoom; double tap to follow latest." }
+                .pointerInput(model?.id) { detectTapGestures(onDoubleTap = { currentOnLatest() }) }
+                .pointerInput(model?.id) {
+                    detectHorizontalDragGestures { change, amount ->
+                        change.consume()
+                        val zoom = exp(amount.toDouble()/size.width.coerceAtLeast(1)*3)
+                        currentOnWindow(currentViewport.zoomControl(currentTotal,zoom),currentFollowing)
+                    }
+                })
+        }
+        Box(Modifier.width(axisWidthDp).fillMaxHeight().padding(bottom = 28.dp)
+            .semantics { contentDescription = (if (showMacd) "Vertical price and MACD axes." else "Vertical price axis.") + " Drag to scale manually; double tap for automatic scale." }
+            .pointerInput(model?.id) {
+                detectTapGestures(onDoubleTap = { point ->
+                    if (point.y < size.height*priceFraction) currentOnPriceScale(ChartScale()) else currentOnMacdScale(ChartScale())
+                })
+            }
+            .pointerInput(model?.id) {
+                var price = true
+                detectVerticalDragGestures(onDragStart = { price = it.y < size.height*priceFraction }) { change, amount ->
+                    change.consume()
+                    val span = (size.height * if (price) priceFraction else 1f-priceFraction).coerceAtLeast(1f)
+                    val zoom = exp(-amount.toDouble()/span*3)
+                    if (price) currentOnPriceScale(currentPriceScale.transformed(currentPriceRange,zoom,0.0))
+                    else currentOnMacdScale(currentMacdScale.transformed(currentIndicatorRange,zoom,0.0))
+                }
+            })
+    }
     }
 }

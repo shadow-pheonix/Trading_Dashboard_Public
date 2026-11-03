@@ -61,6 +61,12 @@ internal fun chartModel(value: MacdSnapshot?, id: String, now: Long, cached: Boo
     return closed.copy(points=closed.points+live)
 }
 
+/** Keep an empty forming slot when its sample is hidden; never invent OHLC or MACD. */
+internal fun chartTimes(value: MacdSnapshot?, candles: List<PriceCandle>, model: MacdModel?): List<Long> =
+    if (value?.chartWindow == 256 && value.candles.isNotEmpty())
+        value.candles.map { it.timestamp } + (value.candles.last().timestamp+MACD_INTERVAL)
+    else candles.map { it.timestamp }.ifEmpty { model?.points?.map { it.timestamp }.orEmpty() }
+
 internal fun MacdSnapshot.withoutLivePreview() = copy(formingCandle=null, formingModels=emptyList(),
     candleStatus=if (chartWindow == 256 && candleStatus == "ok") "stale" else candleStatus,
     chartMacdStatus=if (chartMacdStatus == "ok") "stale" else chartMacdStatus)

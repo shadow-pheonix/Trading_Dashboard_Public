@@ -25,7 +25,8 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
 - Account balances adds each model's share within its wallet beside the dollar
   amount; see [wallet allocation percentages](docs/API-v2.md#demand-only-perpetual-balances).
 - Strategies shows a shared static 15-minute candle preview above the model
-  MACD cards. Tap a model header to open its full-screen chart with 70% candles,
+  MACD cards. Tap that preview for a price-only full-screen chart with all models’
+  entry/SL overlays and one show/hide button. Tap a model header for 70% candles,
   30% MACD, pinch zoom, pan and synchronized crosshair inspection. Extended history
   includes a [forming candle and provisional MACD](docs/API-v2.md#live-candle-and-extended-macd).
   Recorded open
@@ -55,7 +56,8 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   installs skip it. Bundled offline notes live in
   [AppChangelog.kt](app/src/main/java/com/shadowpheonix/tradingdashboard/AppChangelog.kt)
   and are updated for each release.
-- Each saved connection has a bell to mute or enable its [chat-style notifications](docs/ALERTS.md#android).
+- Each saved connection has a bell to mute or enable its [chat-style notifications](docs/ALERTS.md#android),
+  including [combined open-P&L milestones](docs/ALERTS.md#combined-open-pl-milestones).
 - Settings can enable or disable [Android fingerprint or screen-lock authentication](#app-unlock); existing installs keep it enabled.
 - Source, period and All models/M1/M2/M3 filters appear in Analytics and Trades.
   Their shared timeframe bar is 1W, 1M, 3M, 1Y, YTD, All; YTD starts January 1 UTC.

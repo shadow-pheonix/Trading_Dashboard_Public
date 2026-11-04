@@ -144,7 +144,18 @@ Opening either the BTC chart or a model hides the app header, navigation and sys
 uses the full plot height for price in BTC mode; model mode uses a shared
 timeline with 70% of its plot height for price and 30% for MACD,
 excluding top controls and the shared time axis. It starts with the latest 60
-candles, zooms between 12 and 96 and pans throughout the retained history.
+candles, zooms between 12 and 256 and pans throughout the retained history.
+A stable 56 dp right inset (capped at 20% of plot width) leaves space between the
+latest candle and price axis in both orientations. Candles, MACD, entry anchors
+and touch coordinates share the inset width; stop/quote rays extend to the axis.
+The inset creates no synthetic candles and does not reduce the visible candle count.
+Horizontal dragging may move past the latest candle into empty future time. The
+axis projects 15-minute timestamps; candles, MACD and inspection have no invented
+future samples. An entirely future window keeps a recent-data vertical scale,
+without treating the deliberate empty area as a load failure. Manual time windows
+stay anchored across quote updates and rollover; Follow latest restores the
+60-slot default view and right inset. Zoom buttons use the centre in future
+windows and the right edge only when exactly following the latest data.
 Pinch zoom anchors at the gesture centroid. Tap or hold and drag to inspect;
 the crosshair button switches inspection back to panning. Both panels select
 the same timestamp; missing MACD points stay empty. Manual horizontal windows
@@ -156,13 +167,16 @@ OHLC and status text while retaining the same candle history, model pane ratio,
 viewport, manual scales, inspection and overlay state across rotation. Android
 large-screen/windowing policy can override requested orientation.
 Back returns to Strategies. Dragging the bottom time axis adjusts horizontal
-zoom within the same 12–96 limits; its double-tap resumes following latest.
+zoom within the same 12–256 limits; its double-tap resumes following latest.
 
 Automatic price scale fits only visible candles, excluding entry/stop levels.
 Distant stops stay outside the view instead of compressing the candles or
 clamping a badge to a false price. Drag the right price axis vertically to set
-a manual scale, then drag/pinch in the candle pane to move/zoom it freely.
-The MACD axis has an independent manual scale. Manual ranges survive quote
+a manual scale; dragging inside that pane then moves its vertical position.
+Pinch changes horizontal candle spacing only, even when a vertical scale is
+manual or the horizontal zoom limit has been reached. Only a right-axis drag
+changes the manual vertical span. The MACD pane follows the same separation,
+with its own independent axis. Manual ranges survive quote
 updates and horizontal navigation. Double-tap an axis to reset that scale, or
 tap Auto to reset both vertical scales without moving the horizontal window.
 Axis gestures use separate hit regions from inspection and chart panning.
@@ -185,7 +199,7 @@ verification in addition to the viewport, alignment and 70/30 geometry tests.
 Current apps request the exact authenticated query
 `GET /v2/dashboard?view=chart&history=256&live=1`. It returns `chartWindow=256`,
 255 final `candles` and a separate `formingCandle`: 256 total slots, about 64
-hours of 15-minute history. Visible zoom remains 12–96 candles; panning reaches
+hours of 15-minute history. Visible zoom spans 12–256 candles; panning reaches
 all retained history. The shared demand-only public spot cache refreshes on a
 five-second cadence and at candle rollover. Requests await its bounded in-flight refresh; cancellation
 by one viewer does not cancel other viewers' data. Failures use the existing
@@ -237,18 +251,23 @@ status; values are never inferred from file modification time or signal time.
 
 Mint upward arrows mark long entries; rose downward arrows mark short entries.
 The recorded entry time selects its 15-minute candle. A dashed rose stop ray
-starts at that candle's centre and extends right to a price badge. The current
+starts at that candle's centre and extends right to the price axis. The current
 saved stop moves without moving the entry anchor; profit-protecting stops are
 valid. `stopState` is `confirmed`, `saved`, `pending` or `unavailable`; pending
-protection is labelled `SL?`, and missing stops produce no invented line.
+protection is identified in the status row and inspection details; missing stops produce no invented line.
 These are saved bot records, not independent exchange-order verification.
 
 Wallets retain separate entry prices and stops. Same-candle arrows of the same
 direction within one model can share a label; selecting that candle reveals
 individual fills. The main BTC chart prefixes labels with model IDs and stacks
 separate same-candle model arrows without moving their time anchors.
-Equal-price stops share a badge but retain their own starting candles. Nearby
-badges are spaced with leaders while keeping the actual price lines exact.
+Stop labels appear only on the right price axis as red numeric prices without
+model, wallet or SL prefixes. Each model shows the arithmetic mean of its saved
+A/B stop prices; a single wallet shows its actual stop. An incomplete model stop
+pair has no averaged label. Equal numeric labels share one axis mark. The actual
+wallet stop rays retain their exact prices and entry anchors. Nearby axis labels
+are spaced with leaders, and off-screen levels stay hidden until the price axis
+is moved; no label is drawn over the candles or stop rays.
 An entry before the visible window has a clipped continuation ray, without a
 false entry arrow at the left edge. The live view can mark a forming entry candle;
 legacy closed-only views wait for that candle to close.
@@ -390,19 +409,13 @@ The last closed point retains its actual close timestamp. A dashed estimate
 connects it to the captured point at the snapshot timestamp across the elapsed
 time axis; no synthetic close is appended at now and no open-P&L history is inferred.
 
-Analytics displays backend `normalizedEquity.drawdown` directly. The backend
-uses Edge Monitor's `_equity_and_drawdown_from_returns` definition on the same
-source-aware compounded returns as the reference chart. Include untouched
-starting equity in the running peak, then take the largest percentage drop below
-that peak; expose its positive magnitude as `pct`. `usd` is the largest dollar
-drop on the $10k reference curve. These maxima may occur at different troughs.
-Compute both before chart timestamps are coalesced so simultaneous closes cannot
-hide a trough. The selected source, period and model scope is preserved. Real
-money reads regular trade CSVs; Backtest includes edge backtest and live rows.
-Original instance equity, current balances and active P&L are not denominators
-for this closed-trade metric. Missing capital or incomplete history leaves it
-unavailable; older v2 responses without `drawdown` also remain unavailable,
-with no Android calculation substituted. This adds no balance requests.
+`normalizedEquity.drawdown` keeps its legacy contract for older clients: the
+largest percentage drop below the running peak and the independent largest
+reference-dollar drop, calculated before timestamp coalescing. They may occur at
+different troughs. The untouched start belongs to the peak; source, period and
+model filters still apply. Missing capital or incomplete history leaves it null.
+Current cards use [lifetime real-trade drawdowns](#lifetime-real-trade-drawdown-cards)
+instead. Neither metric uses original instance equity or current balances as a denominator.
 
 Analytics fetches one HTTP snapshot on tab entry and holds it until a filter
 change, manual refresh, instance switch or foreground resume. Stream packets
@@ -415,6 +428,40 @@ capture race; larger future timestamps remain unavailable. This is a historical
 estimate at the displayed timestamp, not a continuously live balance. Home
 continues following the real stream; Trades continues refreshing its selected
 history on stream updates. Neither navigation policy adds balance requests.
+
+### Lifetime real-trade drawdown cards
+
+The optional v2 `realDrawdowns` object supplies Current drawdown and Max drawdown:
+`period="All"`, `source="real"`, `closedTrades`, `legacyCapitalEstimate`, and
+`current` / `maximum` objects containing `pct` and nullable `usd`. The cards always
+use **all recorded real closed trades**, including closes older than a year,
+regardless of the selected Analytics source/timeframe. The selected models still
+apply. Use the [existing A/B pairing](#closed-trade-pairing-and-accounting) before
+returns; no Backtest P&L, open positions or mark estimates enter these cards.
+
+Percentages reuse the Edge Monitor compounding above, with the untouched start in
+the high-water mark. If a legacy real close lacks usable position/leverage,
+recorded positive `entry_capital` can supply that model's capital; paired entry
+capital requires both legs. The same portfolio-weight estimate applies and sets
+`legacyCapitalEstimate`. Missing capital is never converted to a zero return.
+
+Each `usd` is the actual net closed P&L loss from the **same interval** that
+produced its percentage. Rank maximum by percentage and retain its corresponding
+cash loss, even when a later smaller percentage has a larger dollar loss. An equal
+return peak starts a fresh current interval; the first maximum-percentage tie is
+retained. Compute before timestamp coalescing. Cash uses logged net P&L, including
+logged fees; funding/cash-flow history remains unavailable. A net cash gain inside
+a return drawdown yields `usd=null`, never a fabricated loss. Missing/empty or
+incomplete real history leaves the object null; unavailable dollars show a dash.
+Older backends without this field also show unavailable cards, with no fallback
+from the reference curve or the visible filtered trades.
+
+Backtest snapshots read only the selected models' regular closed CSVs for these
+additional cards; their edge trades/chart keep the selected filters. Real snapshots
+reuse the histories already read. This adds no state, mark or balance requests to
+Backtest and no trading, bot imports or production writes. Snapshot refresh rules
+above still apply. Cards show percentage first, actual dollars below, and a shared
+**Real closed trades · Lifetime** label; calculation help identifies capital estimates.
 
 ## Demand-only perpetual balances
 

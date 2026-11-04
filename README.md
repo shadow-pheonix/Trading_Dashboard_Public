@@ -35,10 +35,11 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   See [candle charts](docs/API-v2.md#candle-preview-and-full-screen-charts) and the
   [closed-candle indicator contract](docs/API-v2.md#macd-strategy-charts).
 - Analytics holds realized P&L, monthly results and statistics from combined closed trades:
-  profit factor, average/best/worst trade, win/loss/breakeven counts, logged fees
-  and Max drawdown as USD (percentage), supplied by the backend's Edge Monitor
-  calculation. USD uses its $10k reference scale; % uses running peak equity.
-  See the [drawdown contract](docs/API-v2.md#edge-monitor-equity-and-chart-inspection).
+  profit factor, best/worst trade, win/loss/breakeven counts and logged fees.
+  Current drawdown replaces Average trade. Both drawdown cards always use lifetime
+  real closed trades for the selected models, with percentage first and the actual
+  dollar loss from that same interval below it. See the
+  [drawdown contract](docs/API-v2.md#lifetime-real-trade-drawdown-cards).
 - Charts offer cumulative, daily and monthly P&L plus the Edge Monitor's
   reference equity curve, shown as percentage growth and selected by default,
   for either history source and model selection.

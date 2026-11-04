@@ -1,6 +1,7 @@
 """Model projections. A/B matching is mutual and unique, never greedy."""
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
+from decimal import Decimal
 import hashlib
 
 from .validation import InvalidData, snapshot, fields, number, integer, records
@@ -64,13 +65,15 @@ def paired_trades(rows, accounts):
                 item['_chart'] = dict(first['_chart'])
                 sizes = [r['_chart']['position'] for r in (row, other)]
                 item['_chart']['position'] = sum(sizes) if all(s is not None for s in sizes) else None
+                entries = [r['_chart'].get('entry') for r in (row, other)]
+                item['_chart']['entry'] = sum(entries) if all(e is not None and e > 0 for e in entries) else None
                 cum = first['_chart']['cumulative']
                 item['_chart']['starting'] = cum - first['netPnl'] if cum is not None else None
         result.append(item)
     return result
 
 
-def normalized_equity(rows, start):
+def normalized_equity(rows, start, *, include_drawdowns=False):
     """Port Edge Monitor's capital rebuild and source-aware compounding.
 
     Pairing/source scope happens first. Missing capital stays unavailable rather
@@ -94,6 +97,8 @@ def normalized_equity(rows, start):
     growth = 1.0
     peak = 1.0
     max_drawdown_usd = max_drawdown_pct = 0.0
+    cash = peak_cash = Decimal(0)
+    current_loss = maximum_loss = dict(pct=0.0, usd=0.0)
     points = {start: 10000.0} if start and len(rows) < 20000 else {}
     legacy = False
     for row in rows:
@@ -117,12 +122,17 @@ def normalized_equity(rows, start):
                     base = combined
             else:
                 position, leverage = capital.get('position'), capital.get('leverage')
-                if position is None or position <= 0 or leverage is None or leverage <= 0:
-                    return None
                 weight = {'M1': 0.4, 'M2': 0.2, 'M3': 0.4}.get(row['strategy'])
                 if weight is None:
                     return None
-                base = position / leverage / weight
+                if position is not None and position > 0 and leverage is not None and leverage > 0:
+                    base = position / leverage / weight
+                elif include_drawdowns and capital.get('entry') is not None and capital['entry'] > 0:
+                    # A legacy real close may have no leverage. Its captured
+                    # entry equity is usable without guessing a leverage value.
+                    base = capital['entry'] / weight
+                else:
+                    return None
                 legacy = True
             fraction = pnl / base
         growth *= 1 + fraction
@@ -136,14 +146,44 @@ def normalized_equity(rows, start):
         # capital is part of the high-water mark; percentage is relative to peak.
         # Calculate before timestamp coalescing so no intra-timestamp trough is lost.
         peak = max(peak, growth)
-        max_drawdown_pct = max(max_drawdown_pct, (1 - growth / peak) * 100)
+        pct = (1 - growth / peak) * 100
+        if include_drawdowns:
+            cash += Decimal(str(pnl))
+            if growth == peak:
+                peak_cash = cash  # Last recovery to the same high starts a new interval.
+            loss = peak_cash - cash
+            # Changing capital can produce a net cash gain within a return-curve
+            # drawdown. Do not label that gain as a fabricated dollar loss.
+            usd = float(round(loss, 2)) if 0 <= loss <= Decimal('1e20') else None
+            current_loss = dict(pct=pct, usd=usd)
+            if pct > max_drawdown_pct:
+                maximum_loss = current_loss
+        max_drawdown_pct = max(max_drawdown_pct, pct)
         max_drawdown_usd = max(max_drawdown_usd, (peak - growth) * 10000)
         points[row['closedAt']] = value
     # Return the closed curve only. The client adds a fresh saved-capital open
     # mark, preserving demand-only balance behaviour and source isolation.
-    return {'baseEquity': 10000.0, 'legacyCapitalEstimate': legacy,
+    result = {'baseEquity': 10000.0, 'legacyCapitalEstimate': legacy,
         'drawdown': {'usd': max_drawdown_usd, 'pct': max_drawdown_pct},
         'points': [{'timestamp': stamp, 'equity': value} for stamp, value in sorted(points.items())]}
+    if include_drawdowns:
+        result['matchedDrawdowns'] = dict(current=current_loss, maximum=maximum_loss)
+    return result
+
+
+def real_closed_drawdowns(rows):
+    """Lifetime real returns with cash losses from the same percentage intervals.
+
+    The legacy reference curve's independent USD maximum remains unchanged for
+    older clients. This additive object never substitutes backtest or open P&L.
+    """
+    if len(rows) > 20000 or any(r['source'] != 'live' for r in rows):
+        return None
+    result = normalized_equity(rows, 0, include_drawdowns=True)
+    if result is None:
+        return None
+    return dict(period='All', source='real', closedTrades=len(rows),
+                legacyCapitalEstimate=result['legacyCapitalEstimate'], **result['matchedDrawdowns'])
 
 
 def model_projection(instance, histories, accounts, positions, strategies):
@@ -198,7 +238,7 @@ def model_projection(instance, histories, accounts, positions, strategies):
 
 def validate_v2(value, label):
     # Share the strict allowlist and numeric/privacy checks with the immutable v1 contract.
-    projected = {k: v for k, v in value.items() if k not in ("openPerformance", "btcTicker", "normalizedEquity")}
+    projected = {k: v for k, v in value.items() if k not in ("openPerformance", "btcTicker", "normalizedEquity", "realDrawdowns")}
     projected['positions'] = [{k: v for k, v in p.items() if k not in ('stopPrices', 'effectiveLeverage')}
                               for p in value.get('positions', [])]
     checked = snapshot(projected, MODELS, label)
@@ -234,6 +274,24 @@ def validate_v2(value, label):
                 raise InvalidData()
             equity['drawdown'] = dict(usd=usd, pct=pct)
     checked['normalizedEquity'] = equity
+    real_drawdowns = value.get('realDrawdowns')
+    if real_drawdowns is not None:
+        fields(real_drawdowns, ('period', 'source', 'closedTrades', 'legacyCapitalEstimate', 'current', 'maximum'))
+        if (real_drawdowns['period'] != 'All' or real_drawdowns['source'] != 'real'
+                or not 1 <= integer(real_drawdowns['closedTrades'], 1) <= 20000
+                or type(real_drawdowns['legacyCapitalEstimate']) is not bool):
+            raise InvalidData()
+        real_drawdowns = dict(real_drawdowns)
+        for key in ('current', 'maximum'):
+            point = real_drawdowns[key]
+            fields(point, ('pct', 'usd'))
+            pct, usd = number(point['pct']), number(point['usd'], True)
+            if not 0 <= pct <= 100 or (usd is not None and usd < 0) or pct == 0 and usd != 0:
+                raise InvalidData()
+            real_drawdowns[key] = dict(pct=pct, usd=usd)
+        if real_drawdowns['current']['pct'] > real_drawdowns['maximum']['pct']:
+            raise InvalidData()
+    checked['realDrawdowns'] = real_drawdowns
     performance = value.get('openPerformance')
     ticker = value.get('btcTicker')
     if checked['historyMode'] == 'edge' and (performance is not None or ticker is not None):

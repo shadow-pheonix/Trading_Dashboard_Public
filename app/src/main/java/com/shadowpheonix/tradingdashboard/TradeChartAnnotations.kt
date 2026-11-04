@@ -65,7 +65,7 @@ internal fun entryAnnotationLabel(marker: EntryChartMarker, includeModel: Boolea
 }
 
 internal fun stopLineStart(index: Int, viewport: ChartViewport, width: Float): Float? {
-    val x = ((index + 0.5 - viewport.first) / viewport.count * width).toFloat()
+    val x = viewport.candleX(index, width)
     return if (x >= width) null else x.coerceAtLeast(0f)
 }
 
@@ -94,6 +94,12 @@ internal fun stopAnnotationLabel(trades: List<ChartTradeAnnotation>, includeMode
     return listOf(if (pending) "SL?" else "SL", wallets, tradePrice(trades.first().stopPrice!!))
         .filter { it.isNotEmpty() }.joinToString(" ")
 }
+
+/** One numeric axis level per model; an A/B midpoint never replaces either saved stop ray. */
+internal fun stopAxisPrices(trades: List<ChartTradeAnnotation>): List<Double> =
+    trades.groupBy { it.modelId }.toSortedMap().values.mapNotNull { group ->
+        if (group.any { it.stopPrice == null }) null else group.map { it.stopPrice!! }.average()
+    }.distinct()
 
 /** Keep price levels exact while spacing nearby axis badges, with short leader lines. */
 internal fun priceLabelCenters(desired: List<Float>, height: Float, low: Float, high: Float): List<Float> {

@@ -315,7 +315,7 @@ private fun ContentScreen(state: DashboardState, vm: DashboardViewModel, onModel
                         KeyValue(if (state.balancesStale && balanceSample?.equity != null) "Current equity (stale)" else "Current equity",
                             money(balanceSample?.equity, currency = snapshot.currency))
                         KeyValue("Closed trades", snapshot.metrics.closedTrades?.toString() ?: "—")
-                        ExpandableHelp("About these values") { Text("Cash-flow-adjusted return and Sharpe need historical capital and cash-flow data. Max drawdown follows Edge Monitor trade equity.", color = Muted, fontSize = 12.sp)
+                        ExpandableHelp("About these values") { Text("Cash-flow-adjusted return and Sharpe need historical capital and cash-flow data. Both drawdown cards use lifetime real closed trades for the selected models.", color = Muted, fontSize = 12.sp)
                         if (snapshot.historyMode == "real") Text("Equity includes open P&L and refreshes when you open the instance or tap refresh.", color = Muted, fontSize = 11.sp) }
                     } }
                 }
@@ -433,7 +433,7 @@ private fun PnlCard(snapshot: DashboardSnapshot) {
 internal fun MetricGrid(snapshot: DashboardSnapshot) {
     val stats = remember(snapshot) { tradeStatistics(snapshot) }
     val metrics = snapshot.metrics
-    val drawdown = snapshot.normalizedEquity?.drawdown
+    val drawdowns = snapshot.realDrawdowns
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Metric("Win rate", metrics.winRatePct?.let { "${number(it, 1)}%" } ?: "—", Blue, Icons.Outlined.TrackChanges, Modifier.weight(1f).fillMaxHeight())
@@ -441,20 +441,28 @@ internal fun MetricGrid(snapshot: DashboardSnapshot) {
                 Ink, Icons.Outlined.TrendingUp, Modifier.weight(1f).fillMaxHeight())
         }
         Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Metric("Average trade", money(stats?.averagePnl, true, snapshot.currency), tone(stats?.averagePnl), Icons.Outlined.BarChart, Modifier.weight(1f).fillMaxHeight())
-            Metric("Max drawdown", "${money(drawdown?.usd, currency = snapshot.currency)} (${drawdown?.pct?.let { "${number(it, 1)}%" } ?: "—"})",
-                Red, Icons.Outlined.Shield, Modifier.weight(1f).fillMaxHeight(), note = "Edge Monitor · $10k base")
+            Metric("Current drawdown", drawdowns?.current?.pct?.let { "${number(it)}%" } ?: "—",
+                Red, Icons.Outlined.TrendingDown, Modifier.weight(1f).fillMaxHeight(),
+                secondaryValue = drawdowns?.current?.let { "(${money(it.usd, currency = snapshot.currency)})" })
+            Metric("Max drawdown", drawdowns?.maximum?.pct?.let { "${number(it)}%" } ?: "—",
+                Red, Icons.Outlined.Shield, Modifier.weight(1f).fillMaxHeight(),
+                secondaryValue = drawdowns?.maximum?.let { "(${money(it.usd, currency = snapshot.currency)})" })
         }
+        Text("Drawdowns · Real closed trades · Lifetime", color = Muted, fontSize = 11.sp)
         Panel {
             Text("Closed-trade statistics", fontWeight = FontWeight.Bold)
             KeyValue("Wins / losses / breakeven", stats?.let { "${it.wins} / ${it.losses} / ${it.breakeven}" } ?: "—")
             KeyValue("Best trade", money(stats?.bestTrade, true, snapshot.currency))
             KeyValue("Worst trade", money(stats?.worstTrade, true, snapshot.currency))
             KeyValue("Logged fees", money(stats?.fees, currency = snapshot.currency))
-            ExpandableHelp("Calculation details") { Text("Fees are already included in net P&L. Profit factor = winning P&L ÷ absolute losing P&L. Max drawdown uses Edge Monitor's compounded closed-trade equity: USD on its $10k reference curve and % below the running peak.", color = Muted, fontSize = 11.sp) }
-            if (drawdown == null) Text(if (snapshot.normalizedEquity == null)
-                "Recorded trade capital is unavailable for drawdown."
-                else "Update the dashboard backend to load Edge Monitor drawdown.", color = Muted, fontSize = 11.sp)
+            ExpandableHelp("Calculation details") {
+                Text("Fees are already included in net P&L. Profit factor = winning P&L ÷ absolute losing P&L. Drawdowns always use lifetime real closed trades for the selected models, including when the other values show Backtest or another timeframe. Wallet A+B legs are combined first. Percentages follow Edge Monitor's compounded returns below their running peak; each dollar amount is the actual closed P&L loss during that same interval. Maximum drawdown is ranked by percentage. Open P&L is excluded.", color = Muted, fontSize = 11.sp)
+                if (drawdowns?.legacyCapitalEstimate == true)
+                    Text("Drawdown percentages include estimates of historical capital.", color = Muted, fontSize = 11.sp)
+                if (drawdowns != null && (drawdowns.current.usd == null || drawdowns.maximum.usd == null))
+                    Text("A dollar loss is unavailable when cash P&L gained during a return drawdown.", color = Muted, fontSize = 11.sp)
+            }
+            if (drawdowns == null) Text("Real-trade drawdown history or capital is unavailable.", color = Muted, fontSize = 11.sp)
             if (metrics.totalReturnPct != null) KeyValue("Total return", percent(metrics.totalReturnPct))
             if (metrics.sharpeRatio != null) KeyValue("Sharpe ratio", number(metrics.sharpeRatio))
         }
@@ -462,13 +470,14 @@ internal fun MetricGrid(snapshot: DashboardSnapshot) {
 }
 
 @Composable
-private fun Metric(label: String, value: String, color: Color, icon: ImageVector, modifier: Modifier, note: String? = null) {
+private fun Metric(label: String, value: String, color: Color, icon: ImageVector, modifier: Modifier,
+                   secondaryValue: String? = null) {
     Surface(shape = RoundedCornerShape(16.dp), color = CardSurface, modifier = modifier) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Icon(icon, null, tint = color, modifier = Modifier.background(color.copy(alpha = 0.06f), RoundedCornerShape(10.dp)).padding(8.dp).size(22.dp))
             Text(label, color = Muted, fontSize = 12.sp)
             Text(value, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = color)
-            if (note != null) Text(note, color = Muted, fontSize = 10.sp)
+            if (secondaryValue != null) Text(secondaryValue, color = color, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         }
     }
 }

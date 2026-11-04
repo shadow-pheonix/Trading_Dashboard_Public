@@ -69,6 +69,25 @@ class TradeChartAnnotationsTest {
         assertTrue(visibleTradeAnnotations(value,BTC_CHART_ID,now,false,true).isEmpty())
     }
 
+    @Test fun stopAxisShowsOneAveragePerModelWithoutChangingWalletStops() {
+        val a = trade().copy(stopPrice=79000.0)
+        val b = trade("B").copy(stopPrice=79020.0)
+        val m2 = trade().copy(id="c".repeat(24),modelId="M2",stopPrice=78000.0)
+        val m3 = trade().copy(id="d".repeat(24),modelId="M3",stopPrice=80000.0)
+        assertEquals(listOf(79010.0),stopAxisPrices(listOf(a,b)))
+        assertEquals(listOf(79010.0,78000.0,80000.0),stopAxisPrices(listOf(b,m3,a,m2)))
+        assertEquals("79,010",tradePrice(stopAxisPrices(listOf(a,b)).single()))
+        assertEquals(listOf(79000.0,79020.0),listOf(a,b).map { it.stopPrice })
+        assertEquals(listOf(79000.0),stopAxisPrices(listOf(a)))
+        assertEquals(listOf(79000.0),stopAxisPrices(listOf(a.copy(wallet=""))))
+        assertEquals(listOf(79000.0),stopAxisPrices(listOf(a,b.copy(stopPrice=79000.0))))
+        assertEquals(listOf(79000.0),stopAxisPrices(listOf(a,m2.copy(stopPrice=79000.0))))
+        assertTrue(stopAxisPrices(emptyList()).isEmpty())
+        assertTrue(stopAxisPrices(listOf(a,b.copy(stopPrice=null,stopState="unavailable"))).isEmpty())
+        assertEquals(listOf(79010.0),stopAxisPrices(listOf(a,b.copy(stopState="pending"))))
+        assertEquals("79,010.25",tradePrice(stopAxisPrices(listOf(a,b.copy(stopPrice=79020.5))).single()))
+    }
+
     @Test fun oldOfflineAndFailedRefreshMetadataCannotShowActiveStops() {
         val value=snapshot()
         assertEquals(listOf(trade()),visibleTradeAnnotations(value,"M1",now,false,false))

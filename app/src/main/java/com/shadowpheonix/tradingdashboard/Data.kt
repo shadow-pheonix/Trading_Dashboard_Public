@@ -43,7 +43,15 @@ data class DashboardSnapshot(
     val btcTicker: BtcTicker? = null,
     val openPerformance: OpenPerformance? = null,
     val normalizedEquity: NormalizedEquity? = null,
+    val realDrawdowns: RealDrawdowns? = null,
 )
+
+@Serializable
+data class RealDrawdowns(val period: String, val source: String, val closedTrades: Int,
+    val legacyCapitalEstimate: Boolean, val current: RealDrawdown, val maximum: RealDrawdown)
+
+@Serializable
+data class RealDrawdown(val pct: Double, val usd: Double?)
 
 @Serializable
 data class NormalizedEquity(val baseEquity: Double, val legacyCapitalEstimate: Boolean, val points: List<EquityPoint>,

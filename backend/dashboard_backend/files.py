@@ -11,7 +11,7 @@ import threading
 
 from .market import decimal
 from .validation import InvalidData, decode, encode, number, snapshot, period_start
-from .grouping import model_projection, validate_v2, normalized_equity
+from .grouping import model_projection, validate_v2, normalized_equity, paired_trades, real_closed_drawdowns
 
 MAX_HISTORY_BYTES = 8 * 1024 * 1024
 
@@ -115,7 +115,8 @@ class BotFiles:
             "_chart": {'cumulative': chart_number(row, 'cum_capital', 'final_capital'),
                 'position': chart_number(row, 'pos_size_quote', 'pos_size'),
                 'leverage': chart_number(row, 'leverage'),
-                'combined': chart_number(row, 'combined_equity')}}
+                'combined': chart_number(row, 'combined_equity'),
+                'entry': chart_number(row, 'entry_capital')}}
 
     def edge_history(self, instance):
         if not instance.edge_path or any(not a.edge_model for a in instance.accounts):
@@ -285,6 +286,29 @@ class BotFiles:
             except (OSError, InvalidData, ValueError, TypeError, csv.Error):
                 return None
 
+    def lifetime_drawdowns(self, instance, selected, now, histories=None, complete=True):
+        """Read regular closed CSVs only; no states, marks, balances or edge history."""
+        if not complete:
+            return None
+        try:
+            rows = []
+            for account in instance.accounts:
+                if selected != 'all' and account.strategy != selected:
+                    continue
+                if histories is None:
+                    history, available = self.history(account)
+                    if not available:
+                        return None
+                else:
+                    history = histories[account.id]
+                rows.extend(history)
+            if any(r['closedAt'] > now for r in rows):
+                return None
+            rows = sorted(paired_trades(rows, instance.accounts), key=lambda r: (r['closedAt'], r['id']))
+            return real_closed_drawdowns(rows)
+        except (OSError, InvalidData, ValueError, TypeError, csv.Error):
+            return None  # Missing capital/history must not break unrelated Analytics data.
+
     def build(self, instance, period, selected, prices, now, mode="real", version=1, idle_balances=None, clock=None):
         with self.lock:
             if mode == "edge":
@@ -295,7 +319,8 @@ class BotFiles:
                 accounts = [{"id": a.id, "label": a.label, "equity": None, "unrealizedPnl": 0.0}
                             for a in instance.accounts]
                 return self.summarize(instance, period, selected, histories, accounts, [], [],
-                                      True, [], [], now, mode, version)
+                                      True, [], [], now, mode, version,
+                                      real_drawdowns=self.lifetime_drawdowns(instance, selected, now) if version == 2 else None)
             if mode != "real":
                 raise InvalidData()
             accounts, positions, histories, state_times, price_times, strategies = [], [], {}, [], [], []
@@ -362,12 +387,13 @@ class BotFiles:
                                   complete, state_times, price_times, now, mode, version,
                                   capital=(complete_sum(invested), complete_sum(entry_equities)),
                                   btc_ticker=btc_ticker, uses_idle=uses_idle,
-                                  idle_sampled_at=min(idle_times) if idle_times else None)
+                                  idle_sampled_at=min(idle_times) if idle_times else None,
+                                  real_drawdowns=self.lifetime_drawdowns(instance, selected, now, histories, complete) if version == 2 else None)
 
     @staticmethod
     def summarize(instance, period, selected, histories, accounts, positions, strategies,
                   complete, state_times, price_times, now, mode, version=1, capital=(None, None), btc_ticker=None,
-                  uses_idle=False, idle_sampled_at=None):
+                  uses_idle=False, idle_sampled_at=None, real_drawdowns=None):
         chosen_count = sum(selected == "all" or selected == (a.strategy if version == 2 else a.id)
                            for a in instance.accounts)
         if version == 2:
@@ -408,6 +434,7 @@ class BotFiles:
             "trades": [{k: v for k, v in t.items() if not k.startswith('_')} for t in trades]}
         if version == 2:
             result['normalizedEquity'] = normalized_equity(trades, start) if complete else None
+            result['realDrawdowns'] = real_drawdowns
             result["openPerformance"] = open_performance(upnl, capital, uses_idle, idle_sampled_at) if mode == "real" else None
             result["btcTicker"] = btc_ticker if mode == "real" else None
             return validate_v2(result, instance.label)

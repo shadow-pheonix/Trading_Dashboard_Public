@@ -132,8 +132,9 @@ readiness only; authenticated and exchange checks below remain necessary.
 
 ## Verify after the human upgrade
 
-The latest update requires the dashboard backend for Edge Monitor drawdown,
-YTD and reference equity. See the [chart contract](API-v2.md#edge-monitor-equity-and-chart-inspection).
+The latest update requires the dashboard backend for
+[lifetime real-trade drawdowns](API-v2.md#lifetime-real-trade-drawdown-cards),
+YTD and reference equity. Older backends leave the new cards unavailable.
 Verify YTD excludes prior-year closes after pairing and starts at January 1 on
 the $10k reference scale. Real money must use regular trade CSVs, and Backtest
 must keep its edge history. Both chart views include an open-P&L point captured
@@ -181,7 +182,7 @@ signal EMA lines with histogram bars for M1(300), M2(450) and M3(600), using the
 [closed-candle chart contract](API-v2.md#macd-strategy-charts). Check tap/drag
 inspection, loading/stale states and both themes; Home retains position details.
 Verify the [extended full-screen chart](API-v2.md#live-candle-and-extended-macd):
-pan across 256 slots, keep zoom within 12–96, and check the forming candle and
+pan across 256 slots, keep zoom within 12–256, and check the forming candle and
 provisional MACD update together. Test rollover, refresh failure and offline
 reopening: partial bars must disappear instead of becoming saved final candles.
 Refresh an already-live chart: it must retain the online view while fetching,
@@ -189,11 +190,28 @@ and an expired partial sample must leave an empty slot without shifting history.
 Check [manual and automatic axes](API-v2.md#candle-preview-and-full-screen-charts):
 a distant SL must not compress candles in Auto. Drag the right price axis, pan
 vertically to reach the SL, and confirm quote updates retain the manual range.
+Unlock price and MACD scales, then repeatedly pinch horizontally through both
+zoom limits: the manual vertical span must not stretch or flatten the candles.
+Vertical pane dragging must move that range without resizing it; only dragging
+the corresponding right axis changes its span.
 Double-tap the axis or tap Auto to restore candle fitting. Check independent MACD
 scaling, time-axis zoom, Follow latest and inspection in portrait/landscape and
 with large text; refreshing must not reset a panned time window.
 Tap the top BTC preview: its full-screen chart must use the same candle history,
-fill the plot with price only, and show labelled M1/M2/M3 entries and stops.
+fill the plot with price only, and show labelled M1/M2/M3 entries. Stop labels
+must be red numeric prices on the right axis: A/B average per model, actual stop
+for one wallet, no model/wallet/SL prefixes and no label covering a stop ray.
+Check differing, equal and missing stops, nearby labels and off-screen levels;
+wallet rays must retain their exact prices. Repeat in each model chart.
+Check the default right-side gap between the newest candle and price axis in
+portrait/landscape, at 12/60/256 candle zoom, after Follow latest and on rollover.
+Candles, MACD and entries must align, with tap/crosshair/pinch/pan targeting the
+same candle; no fake candles or fewer retained candles may fill the gap.
+Drag the latest candle left into a larger empty future area, including an entirely
+empty window. Verify future time ticks, no fabricated candles/MACD or selectable
+future data, no false unavailable message and a usable recent-data price scale.
+Zoom/pan back, refresh, rotate and cross a rollover without snapping to latest;
+Follow latest must restore the default live view.
 Toggle the eye button twice; all overlays must hide/return without resetting
 zoom or manual axes. Check overlapping model entries and both themes.
 After human activation of the bot export and its first complete evaluation,
@@ -227,11 +245,13 @@ position-set change must not create an alert. Do not place a trade to test this.
 
 Confirm Analytics and Trades headings above the period bar, source/model filters
 beside each other, no Trades search bar, paired counts, and
-Analytics' Max drawdown display as USD (percentage), with unavailable
-values when trade capital is missing. Both values must come from the backend's
-Edge Monitor compounded-equity calculation; USD uses the $10k reference scale
-and percentage uses its running peak, including model and Backtest selections. Confirm
-that switching them leaves Home real. Background the app and confirm no recurring
+Current drawdown in place of Average trade. Both drawdown cards must show
+percentage first, matching real dollars below, and Real closed trades · Lifetime.
+Changing the visible timeframe or selecting Backtest must leave these cards on
+lifetime real closes; model filters still apply and combine A/B. Check single-wallet
+instances, a close older than a year, missing capital/history, and a maximum-percent
+interval with a smaller dollar loss than the current interval. Capital estimates
+must be disclosed in calculation help. Confirm switching filters leaves Home real. Background the app and confirm no recurring
 Hyperliquid balance requests. Navigate through every tab and change filters:
 the connection must stay open. Analytics must hold its snapshot through repeated
 live updates and time passing, including the All models / All view. Re-entering

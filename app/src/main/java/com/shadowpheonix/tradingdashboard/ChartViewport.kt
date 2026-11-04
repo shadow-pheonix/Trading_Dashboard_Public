@@ -3,33 +3,48 @@ package com.shadowpheonix.tradingdashboard
 import kotlin.math.floor
 import kotlin.math.ceil
 
+internal const val MAX_VISIBLE_CHART_CANDLES = 256
+private const val MAX_FUTURE_CHART_SLOTS = 1_000_000.0 // Finite guard for gestures/restored state, not data retention.
+
 /** Index-space window shared by candles and MACD; transforms anchor at the pinch centroid. */
 internal data class ChartViewport(val first: Double, val count: Double) {
     fun bounded(total: Int): ChartViewport {
         val available = total.coerceAtLeast(1).toDouble()
-        val shown = count.takeIf { it.isFinite() }?.coerceIn(minOf(12.0, available), minOf(96.0,available)) ?: minOf(60.0, available)
-        return ChartViewport(first.takeIf { it.isFinite() }?.coerceIn(0.0, available - shown) ?: 0.0, shown)
+        val shown = count.takeIf { it.isFinite() }?.coerceIn(minOf(12.0, available), minOf(MAX_VISIBLE_CHART_CANDLES.toDouble(),available)) ?: minOf(60.0, available)
+        return ChartViewport(first.takeIf { it.isFinite() }?.coerceIn(0.0, available + MAX_FUTURE_CHART_SLOTS) ?: 0.0, shown)
     }
 
     fun transform(total: Int, zoom: Double, panFraction: Double, anchorFraction: Double): ChartViewport {
         val current = bounded(total)
         if (!zoom.isFinite() || zoom <= 0 || !panFraction.isFinite() || !anchorFraction.isFinite()) return current
         val anchor = anchorFraction.coerceIn(0.0, 1.0)
-        val shown = (current.count / zoom).coerceIn(minOf(12.0, total.coerceAtLeast(1).toDouble()), minOf(96.0,total.coerceAtLeast(1).toDouble()))
+        val shown = (current.count / zoom).coerceIn(minOf(12.0, total.coerceAtLeast(1).toDouble()), minOf(MAX_VISIBLE_CHART_CANDLES.toDouble(),total.coerceAtLeast(1).toDouble()))
         return ChartViewport(current.first + current.count * anchor - shown * anchor - panFraction * shown, shown).bounded(total)
     }
 
-    fun indexAt(fraction: Double, total: Int): Int =
-        floor(first + fraction.coerceIn(0.0, 1.0) * count).toInt()
-            .coerceAtMost(ceil(first + count).toInt() - 1).coerceIn(0, (total - 1).coerceAtLeast(0))
+    fun candleX(index: Int, width: Float): Float =
+        ((index + 0.5 - first) / count * width).toFloat()
+
+    fun visibleIndices(total: Int): IntRange {
+        val from = floor(first).toInt().coerceIn(0, total.coerceAtLeast(0))
+        val until = ceil(first + count).toInt().coerceIn(from, total.coerceAtLeast(0))
+        return from until until
+    }
+
+    fun indexAt(fraction: Double, total: Int): Int? {
+        if (!fraction.isFinite() || total <= 0) return null
+        val index = floor(first + fraction.coerceIn(0.0, 1.0) * count).toInt()
+            .coerceAtMost(ceil(first + count).toInt() - 1)
+        return index.takeIf { it in visibleIndices(total) }
+    }
 
     fun zoomControl(total: Int, factor: Double): ChartViewport =
-        transform(total, factor, 0.0, if (first + count >= total - 0.001) 1.0 else 0.5)
+        transform(total, factor, 0.0, if (kotlin.math.abs(first + count - total) < 0.001) 1.0 else 0.5)
 
     companion object {
         fun latest(total: Int, count: Double = 60.0): ChartViewport {
             val available = total.coerceAtLeast(1).toDouble()
-            val shown = count.coerceIn(minOf(12.0,available),minOf(96.0,available))
+            val shown = count.coerceIn(minOf(12.0,available),minOf(MAX_VISIBLE_CHART_CANDLES.toDouble(),available))
             return ChartViewport(total - shown, shown).bounded(total)
         }
     }
@@ -44,6 +59,12 @@ internal const val BTC_CHART_ID = "BTC"
 internal fun chartPaneLayout(width: Float, height: Float, axisWidth: Float, timeHeight: Float, showMacd: Boolean = true): ChartPaneLayout {
     val plotHeight = (height - timeHeight).coerceAtLeast(1f)
     return ChartPaneLayout((width - axisWidth).coerceAtLeast(1f), plotHeight * if (showMacd) 0.7f else 1f, if (showMacd) plotHeight * 0.3f else 0f)
+}
+
+/** Keep a stable right-side breathing room without adding synthetic candle slots. */
+internal fun chartContentWidth(plotWidth: Float, trailingSpace: Float): Float {
+    val available = plotWidth.coerceAtLeast(1f)
+    return (available - minOf(trailingSpace.coerceAtLeast(0f), available * 0.2f)).coerceAtLeast(1f)
 }
 
 /** Match real timestamps, never assume two retained series end on the same candle. */
@@ -64,10 +85,22 @@ internal data class ChartWindow(val firstTime: Double = Double.NaN, val count: D
     }
 }
 
-/** Auto uses only the visible candles. A gesture freezes a finite manual range. */
+/** Project the 15-minute time axis past the last sample; this never adds a data point. */
+internal fun chartTimestamp(times: List<Long>, index: Int): Long? = times.getOrNull(index) ?: times.firstOrNull()?.let { start ->
+    try { Math.addExact(start, Math.multiplyExact(index.toLong(), MACD_INTERVAL)) }
+    catch (_: ArithmeticException) { null }
+}
+
+/** Auto uses visible data, or recent data while the window is entirely in empty future space. */
 internal data class ChartScale(val low: Double = Double.NaN, val high: Double = Double.NaN) {
     val automatic get() = !low.isFinite() || !high.isFinite() || high <= low
     fun range(auto: ChartRange) = if (automatic) auto else ChartRange(low, high)
+
+    /** Plot pinches control horizontal spacing; manual vertical spans only pan here. */
+    fun fromPlotGesture(auto: ChartRange, horizontalZoom: Double, panFraction: Double): ChartScale {
+        if (automatic || !horizontalZoom.isFinite() || horizontalZoom <= 0) return this
+        return transformed(auto, 1.0, panFraction)
+    }
 
     fun transformed(auto: ChartRange, zoom: Double, panFraction: Double, anchorFraction: Double = 0.5): ChartScale {
         if (!zoom.isFinite() || zoom <= 0 || !panFraction.isFinite() || !anchorFraction.isFinite()) return this
@@ -83,16 +116,17 @@ internal data class ChartScale(val low: Double = Double.NaN, val high: Double = 
 }
 
 internal fun <T> chartVisible(values: List<T>, viewport: ChartViewport): List<T> {
-    val from = floor(viewport.first).toInt().coerceIn(0, values.size)
-    val until = ceil(viewport.first+viewport.count).toInt().coerceIn(from, values.size)
-    return values.subList(from, until)
+    val indices = viewport.visibleIndices(values.size)
+    return values.subList(indices.first, indices.last + 1)
 }
 
 internal fun chartPriceRange(candles: List<PriceCandle>, viewport: ChartViewport): ChartRange =
-    chartVisible(candles, viewport).let { if (it.isEmpty()) ChartRange(0.0, 1.0) else priceRange(it) }
+    chartVisible(candles, viewport).ifEmpty { candles.takeLast(ceil(viewport.count).toInt()) }
+        .let { if (it.isEmpty()) ChartRange(0.0, 1.0) else priceRange(it) }
 
 internal fun chartMacdRange(points: List<MacdPoint?>, viewport: ChartViewport): ChartRange {
-    val values = chartVisible(points, viewport).filterNotNull().flatMap { listOf(it.macd, it.signal, it.histogram) } + 0.0
+    val values = chartVisible(points, viewport).ifEmpty { points.takeLast(ceil(viewport.count).toInt()) }
+        .filterNotNull().flatMap { listOf(it.macd, it.signal, it.histogram) } + 0.0
     val low = values.min(); val high = values.max()
     val pad = maxOf((high-low)*0.12, 1.0)
     return ChartRange(low-pad, high+pad)

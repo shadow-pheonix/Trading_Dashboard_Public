@@ -64,14 +64,14 @@ class LiveChartTest {
         assertEquals(96,chartModel(unavailable,"M1",now)!!.points.size)
     }
 
-    @Test fun historyPansAcrossAll256ButBothZoomMethodsStayWithin12To96() {
+    @Test fun historyPansAcrossAll256AndBothZoomMethodsStayWithin12To256() {
         assertEquals(ChartViewport(196.0,60.0),ChartViewport.latest(256))
-        assertEquals(ChartViewport(160.0,96.0),ChartViewport.latest(256,1000.0))
+        assertEquals(ChartViewport(0.0,256.0),ChartViewport.latest(256,1000.0))
         val max=ChartViewport.latest(256).zoomControl(256,1e-10)
-        assertEquals(96.0,max.count,0.0)
+        assertEquals(256.0,max.count,0.0)
         assertEquals(12.0,max.zoomControl(256,1e10).count,0.0)
         assertEquals(0.0,max.transform(256,1.0,100.0,0.5).first,0.0)
-        assertEquals(160.0,max.transform(256,1.0,-100.0,0.5).first,0.0)
+        assertEquals(25600.0,max.transform(256,1.0,-100.0,0.5).first,0.0)
         assertEquals(255,ChartViewport.latest(256).indexAt(1.0,256))
         assertEquals(195.0,ChartWindow().viewport((1..255).map {current+it*MACD_INTERVAL}).first,0.0)
     }

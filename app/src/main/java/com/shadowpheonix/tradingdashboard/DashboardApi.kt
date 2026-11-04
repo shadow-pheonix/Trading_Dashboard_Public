@@ -210,6 +210,15 @@ class DashboardApi {
 }
 
 fun validateSnapshot(snapshot: DashboardSnapshot, period: String, account: String, mode: String = "real") {
+    snapshot.realDrawdowns?.let { drawdowns ->
+        if (drawdowns.period != "All" || drawdowns.source != "real" || drawdowns.closedTrades !in 1..20000 ||
+            drawdowns.current.pct > drawdowns.maximum.pct) throw DashboardError("Invalid real-trade drawdowns.")
+        listOf(drawdowns.current, drawdowns.maximum).forEach { point ->
+            if (!point.pct.isFinite() || point.pct !in 0.0..100.0 ||
+                point.usd?.let { !it.isFinite() || it !in 0.0..1e20 } == true ||
+                point.pct == 0.0 && point.usd != 0.0) throw DashboardError("Invalid real-trade drawdowns.")
+        }
+    }
     snapshot.normalizedEquity?.let { equity ->
         equity.drawdown?.let { dd ->
             if (!dd.usd.isFinite() || !dd.pct.isFinite() || dd.usd < 0 || dd.pct !in 0.0..100.0 ||

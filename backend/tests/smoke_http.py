@@ -206,6 +206,40 @@ def main():
                     raise AssertionError('Unauthenticated v2 socket was accepted.')
             except InvalidStatus as error:
                 assert error.response.status_code == 403
+            # Add real A/B closes solely in this synthetic fixture, including a
+            # close older than a year. Both HTTP and WS must keep lifetime real
+            # drawdowns while the visible page requests a week or Backtest.
+            histories = [(history, history.read_text()), (idle_history, idle_history.read_text())]
+            try:
+                old_close = datetime.fromtimestamp(time.time() - 400 * 86400, timezone.utc)
+                new_close = datetime.fromtimestamp(time.time() - 300, timezone.utc)
+                rows = 'trade_num,side,entry_time,exit_time,entry_price,exit_price,pnl_usd,total_fees,pos_size,leverage\n'
+                for number, (at, pnl) in enumerate(((old_close, -10), (new_close, 5)), 1):
+                    opened_at = datetime.fromtimestamp(at.timestamp() - 10000, timezone.utc).isoformat()
+                    rows += f'{number},LONG,{opened_at},{at.isoformat()},100,110,{pnl},1,40,1\n'
+                for path, _ in histories:
+                    path.chmod(0o600); path.write_text(rows); path.chmod(0o400)
+                reference = None
+                for mode in ('real', 'edge'):
+                    status, received = call(f'/v2/dashboard?period=1W&model=all&mode={mode}')
+                    assert status == 200
+                    drawdowns = received['realDrawdowns']
+                    assert drawdowns['source'] == 'real' and drawdowns['period'] == 'All'
+                    assert drawdowns['closedTrades'] == 2
+                    assert abs(drawdowns['current']['pct'] - 5.5) < 1e-6
+                    assert drawdowns['current']['usd'] == 10
+                    assert abs(drawdowns['maximum']['pct'] - 10) < 1e-6
+                    assert drawdowns['maximum']['usd'] == 20
+                    if reference is not None:
+                        assert drawdowns == reference
+                    reference = drawdowns
+                    with connect(f'ws://127.0.0.1:{port}/v2/live?period=1W&model=all&mode={mode}',
+                                 proxy=None, open_timeout=3, additional_headers={'Authorization': 'Bearer ' + token}) as stream:
+                        assert json.loads(stream.recv(timeout=5))['realDrawdowns'] == reference
+                assert 'realDrawdowns' not in call('/v1/dashboard?period=1W&account=all')[1]
+            finally:
+                for path, original in histories:
+                    path.chmod(0o600); path.write_text(original); path.chmod(0o400)
             url = f'ws://127.0.0.1:{port}/v1/live?period=All&account=a'
             try:
                 with connect(url, proxy=None, open_timeout=3):
@@ -233,7 +267,7 @@ def main():
             assert idle_state.stat().st_mode & 0o777 == 0o400
             assert idle_history.stat().st_mode & 0o777 == 0o400
             assert edge.stat().st_mode & 0o777 == 0o400
-            print('HTTP/WebSocket smoke passed: real/edge modes, combined calculations, authentication, scope, revocation, read-only inputs.')
+            print('HTTP/WebSocket smoke passed: real/edge modes, lifetime real drawdowns with matched cash losses, combined calculations, authentication, scope, revocation, read-only inputs.')
         finally:
             process.terminate()
             try:

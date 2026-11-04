@@ -84,17 +84,22 @@ one record per $1,000 mark.
 
 First observation and a changed position set (entry, addition, trim, reversal
 or close) establish silent baselines; a changed stop alone does not reset them.
-Samples received over 30 seconds late, in the future or out of order are ignored.
-The baseline, per-level cooldowns, monotonic local event sequence, history and pending
-notifications are saved with the bot cursor in one private ledger commit before
-posting. A second commit clears pending delivery after posting; restart retries
-the saved event even if price has crossed back. Deterministic IDs make retries
-idempotent. Same-band quote changes stay in memory; only baseline/position-set
-changes, crossings or bot delivery changes checkpoint the ledger, avoiding a
-rewrite of the whole inbox on every price tick. Reconnect compares the next
-valid total with the last saved sample;
-it cannot reconstruct crossings that occurred entirely between samples or while
-offline. Milestones use the existing floating reports channel, instance bells,
+Every new socket connection establishes a quiet baseline. Missing, future or
+over-30-second-late totals invalidate the crossing baseline; recovery is quiet.
+Out-of-order totals cannot replace an accepted sample. Cooldowns and the local
+event sequence survive reconnects and availability gaps for the same position set.
+A continuous connection may have long intervals between changed totals; those
+intervals alone do not invalidate its baseline.
+The baseline, cooldowns, local sequence, history and pending notifications share
+one private ledger commit before posting; a second commit clears pending delivery.
+Local milestone retries are allowed only within the same uninterrupted stream,
+for the same open position set, while both event and sample are at most 30 seconds old.
+Reconnect drops pending local milestone delivery but retains its inbox history.
+Durable bot events still replay across disconnects and process restarts. Deterministic
+IDs make retries idempotent. Same-band quotes stay in memory; only baseline validity,
+position/band changes, cooldowns, crossings or bot delivery changes checkpoint the
+ledger, avoiding a whole-inbox rewrite on every tick. Offline crossings are not inferred.
+Milestones use the existing floating reports channel, instance bells,
 master switch, privacy and inbox behavior. Muted crossings still advance local
 history/baseline; unmuting does not replay them. Forgetting clears them.
 
@@ -136,11 +141,14 @@ stay blocked; user channel settings and Do Not Disturb remain authoritative.
 Shade and floating alerts use native BigTextStyle with no large avatar or
 extra sender/category heading. The instance appears in Android's small header;
 each alert's own first line becomes its title once, with the remaining message
-on expansion. P&L milestones instead lead with `Crossed +$3,000 ↑` (including
-the original sign, direction and multi-level count), followed by current P&L.
+on expansion. P&L milestones in both notifications and the inbox lead with
+`📈 Rose above +$3,000` or `📉 Dropped below +$3,000`, followed by current P&L.
+The sign identifies the level, while the verb/icon identifies movement; recovery
+can therefore say `📈 Rose above −$3,000`. Multi-level counts remain visible.
 Entry previews lead with direction/entry/SL, closed trades with P&L, and skipped
-trades with their reason. Original emoji, paragraphs and fields remain available;
-stored messages and the in-app history are unchanged. Each instance/category
+trades with their reason. Original emoji, paragraphs and fields remain available.
+Stored messages remain unchanged; old inbox milestones use the clearer directional
+heading too. Each instance/category
 has one expanding card; urgent risk stays separate from routine reports.
 Category channel settings remain authoritative. A new event can alert again; replaying an event already in
 the card updates it quietly. Rapid bursts remain buffered until Android
@@ -238,7 +246,7 @@ migration, source-ID deduplication, replay, bootstrap, gaps, feed validation,
 authenticated URLs, offline suspension, network handover, retry cancellation,
 bounded jitter, healthy recovery, boot/update eligibility, signed milestone
 crossings/recovery, cooldown expiry and independent levels, silent baselines,
-position-set resets, mute and durable replay.
+position-set resets, mute, durable bot replay and fresh-only local milestone delivery.
 Actions runs unit tests, lint and builds with the existing permanent signature.
 These offline checks do not prove live fills, exchange rejections, device
 background reliability, real VPS permissions or long-running behavior.

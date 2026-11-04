@@ -27,9 +27,11 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
     ChangelogChange(ChangelogCategory.Improvements,
-        "P&L notifications lead with the crossed dollar level, followed by current P&L. Trade entry previews show direction and price; closed trades show P&L first; skipped trades show their reason."),
+        "P&L milestones say Rose above or Dropped below the signed level, with matching direction icons in notifications and alert history."),
     ChangelogChange(ChangelogCategory.BugFixes,
-        "Removed repeated notification headings and large instance avatars. Alerts use their own heading once, with the instance in Android’s small header and full details on expansion or in alert history."),
+        "Reconnecting or recovering unavailable P&L starts quietly. Old pending P&L milestones no longer replay as fresh crossings; the 15-minute per-level cooldown remains."),
+    ChangelogChange(ChangelogCategory.BugFixes,
+        "Export diagnostics saves a timestamped ZIP directly to Downloads and shows its filename. Incomplete exports are removed; the Android share sheet is no longer used."),
 )
 
 @Composable

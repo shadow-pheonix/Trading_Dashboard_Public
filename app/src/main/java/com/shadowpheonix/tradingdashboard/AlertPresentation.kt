@@ -54,6 +54,8 @@ fun presentAlert(instance: String, alert: DashboardAlert): AlertPresentation {
     val risk = urgent || listOf("WARNING", "ORDER NOT SENT", "STOP LOSS", "STOP-LOSS", "RECOVERY", "DISABLED",
         "AGENT KEY", "EXECUTION FAILURE", "ERROR", "HALTED").any { it in upper }
     val category = when { urgent -> AlertCategory.Risk; entry || exit -> AlertCategory.Trade; risk -> AlertCategory.Risk; else -> AlertCategory.Status }
+    // Directional formatting must never downgrade an execution/risk warning.
+    if (category == AlertCategory.Status) pnlMilestonePresentation(instance, lines)?.let { return it }
     val action = when {
         urgent -> "Urgent risk alert"
         entry -> when { Regex("\\bLONG\\b").containsMatchIn(upper) -> "LONG entered";

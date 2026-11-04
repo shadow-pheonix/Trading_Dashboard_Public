@@ -216,9 +216,11 @@ recent-app dismissal, screen-off, network handover, reboot/unlock and APK update
 Force stop requires reopening. Check that disabling alerts stops the receiver.
 Verify [P&L milestones](ALERTS.md#combined-open-pl-milestones) with synthetic
 positive/negative crossings, 15-minute per-level cooldown/expiry, immediate new
-levels, muted instances and reconnect. Check
+levels, muted instances and reconnect. Reconnect and recovery after unavailable
+P&L must baseline quietly; expired pending milestones must not replay. Check
 current totals in floating/shade/inbox views. In collapsed and floating P&L
-notifications, confirm the crossed level is the title and current P&L is below.
+notifications and inbox, confirm “Rose above” / “Dropped below” describes the
+signed level and current P&L is below it.
 Other notifications must show their source heading once without a large avatar;
 expand a burst and check latest details precede earlier messages. A first sample, closing trade or
 position-set change must not create an alert. Do not place a trade to test this.
@@ -247,7 +249,8 @@ Test portrait/landscape toggling on the BTC chart and each model chart,
 including manual scaling, inspection, overlay visibility, background/resume and Back.
 Confirm Back restores portrait and the chart window survives rotation.
 Use Settings to export and clear [app diagnostics](DIAGNOSTICS.md); verify the
-share sheet opens and the ZIP contains only the documented fields.
+timestamped ZIP appears in Downloads, a second export preserves the first,
+permission denial on Android 8–9 is handled, and the ZIP contains only the documented fields.
 For failures, use dashboard service status and private diagnostics; do not print
 login headers, public addresses or provider payloads. Offline tests use mocks
 and do not prove live exchange reachability, actual address mapping, phone UI,

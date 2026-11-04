@@ -10,7 +10,7 @@ class PnlMilestonesTest {
         AlertPnlSample(positions, pnl, count, at, if (count > 0) at else null)
     private fun batch(value: AlertPnlSample?) = AlertBatch(1, AlertSource("main", "Main"), "ready",
         emptyList(), 0, 0, 0, false, false, value)
-    private fun next(saved: AlertLedger, value: AlertPnlSample?, now: Long = value?.sampledAt ?: 100_000) = replayAlerts(saved, batch(value), now)
+    private fun next(saved: AlertLedger, value: AlertPnlSample?, now: Long = value?.sampledAt ?: 100_000) = replayAlerts(saved, batch(value), now, pnlContinuous = true)
     private fun seeded(value: Double = 950.0) = next(AlertLedger(), sample(value)).ledger
 
     @Test fun crossingsIncludeBothSignsExactLevelsRecoveryAndNoZeroAlert() {
@@ -125,10 +125,11 @@ class PnlMilestonesTest {
         val sameBand=next(saved,sample(1800.0,103_000))
         assertFalse(alertCheckpointChanged(saved,sameBand.ledger))
         assertFalse(alertCheckpointChanged(saved,next(saved,sample(1500.0,106_000)).ledger))
-        // Reconnect may use the older persisted quote: its band still gives the same crossing.
+        // In-memory same-band quotes retain the same crossing decision within one stream.
         val live=next(sameBand.ledger,sample(2050.0,106_000))
-        val restarted=next(saved,sample(2050.0,106_000))
-        assertEquals(live.notifications,restarted.notifications)
+        val restarted=replayAlerts(saved,batch(sample(2050.0,106_000)),106_000)
+        assertEquals(1,live.notifications.size)
+        assertTrue(restarted.notifications.isEmpty())
         assertTrue(alertCheckpointChanged(saved,restarted.ledger))
         assertTrue(alertCheckpointChanged(AlertLedger(),saved))
         assertTrue(alertCheckpointChanged(saved,saved.copy(cursor=1)))
@@ -137,10 +138,10 @@ class PnlMilestonesTest {
         assertTrue(alertCheckpointChanged(saved,next(saved,sample(1100.0,103_000,"b".repeat(64))).ledger))
     }
 
-    @Test fun pendingDeliverySurvivesProcessDeathEvenWhenTheNextPriceNoLongerCrosses() {
+    @Test fun recentPendingDeliveryRetriesOnlyWithinTheContinuousStream() {
         val first=next(seeded(),sample(1050.0,103_000))
-        // This is the service's atomic pre-post commit. The process may stop
-        // before Android sees the event or before the post-ack commit.
+        // A recent pre-post record can retry in the same live stream.
+        // A process restart instead begins a new stream and drops local retries.
         val staged=first.ledger.copy(pendingNotifications=first.notifications)
         val restored=dashboardJson.decodeFromString<AlertLedger>(dashboardJson.encodeToString(staged))
         val retried=next(restored,sample(1200.0,106_000))
@@ -149,13 +150,13 @@ class PnlMilestonesTest {
         assertTrue(retried.ledger.pendingNotifications.isEmpty())
         // Once posting and the acknowledgement commit complete, reconnect is quiet.
         assertTrue(next(retried.ledger,sample(1200.0,109_000)).notifications.isEmpty())
-        // A new level during recovery delivers the pending original and the new event.
+        // A new live level delivers the recent pending original and the new event.
         val recrossed=next(restored,sample(2050.0,106_000))
         assertEquals(2,recrossed.notifications.size)
         assertEquals(first.notifications.single(),recrossed.notifications.first())
         assertNotEquals(recrossed.notifications[0].id,recrossed.notifications[1].id)
         val unavailable=batch(null).copy(status="unavailable")
-        assertEquals(first.notifications,replayAlerts(restored,unavailable,106_000).notifications)
+        assertTrue(replayAlerts(restored,unavailable,106_000,pnlContinuous=true).notifications.isEmpty())
     }
 
     @Test fun positionChangesAndFlatTransitionsEstablishFreshSilentBaselines() {
@@ -172,21 +173,21 @@ class PnlMilestonesTest {
     }
     @Test fun missingStaleFutureAndReorderedSamplesCannotMoveTheBaseline() {
         val saved=seeded()
-        assertEquals(saved,next(saved,null).ledger)
+        assertFalse(next(saved,null).ledger.pnl!!.baselineValid)
         val value=sample(1050.0,103_000)
-        assertEquals(saved,next(saved,value,133_001).ledger)
-        assertEquals(saved,next(saved,value,102_999).ledger)
+        assertFalse(next(saved,value,133_001).ledger.pnl!!.baselineValid)
+        assertFalse(next(saved,value,102_999).ledger.pnl!!.baselineValid)
         assertEquals(saved,next(saved,sample(1050.0,99_000)).ledger)
-        // Recovery compares the last accepted sample; it does not invent an outage history.
+        // A connected stream need not send a heartbeat while the total is unchanged.
         assertEquals(1,next(saved,sample(2150.0,150_000)).notifications.size)
     }
     @Test fun botOutboxFailureCannotBlockPnlAndLegacyBotReplayRemainsIndependent() {
         val unavailable=batch(sample(1050.0,103_000)).copy(status="unavailable")
-        val delivery=replayAlerts(seeded(),unavailable,103_000)
+        val delivery=replayAlerts(seeded(),unavailable,103_000,pnlContinuous=true)
         assertEquals(1,delivery.notifications.size);assertEquals(0L,delivery.ledger.cursor)
         val bot=batch(null).copy(events=listOf(AlertEvent(1,"bot1",104_000,"Trade opened")),cursor=1,oldest=1,newest=1)
         val combined=replayAlerts(delivery.ledger,bot,104_000)
-        assertEquals(listOf("bot1"),combined.notifications.map { it.id });assertEquals(delivery.ledger.pnl,combined.ledger.pnl)
+        assertEquals(listOf("bot1"),combined.notifications.map { it.id });assertEquals(delivery.ledger.pnl!!.copy(baselineValid=false),combined.ledger.pnl)
         assertTrue(replayAlerts(combined.ledger,bot,104_000).notifications.isEmpty())
     }
     @Test fun oldSavedLedgersAndServersAreCompatibleAndNewSamplesAreStrictlyValidated() {
@@ -202,7 +203,7 @@ class PnlMilestonesTest {
     @Test fun milestonesUseFloatingReportsAndKeepTheFullAmountInPreviewAndHistory() {
         val event=next(seeded(),sample(1050.25,103_000)).notifications.single()
         val presentation=presentAlert("Main",event)
-        assertEquals("Main · 📈 Combined open P&L",presentation.title)
+        assertEquals("Main · 📈 Rose above +$1,000",presentation.title)
         assertEquals("Current P&L: +$1,050.25",presentation.preview)
         assertEquals("alerts_reports_floating",alertChannel(presentation))
         assertEquals(AlertCategory.Status,presentation.category)

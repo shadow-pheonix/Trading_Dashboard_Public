@@ -42,18 +42,30 @@ internal fun alertCheckpointChanged(before: AlertLedger, after: AlertLedger): Bo
         before.gap != after.gap || before.pendingNotifications != after.pendingNotifications ||
         before.pnl?.positionsKey != after.pnl?.positionsKey || before.pnl?.sequence != after.pnl?.sequence ||
         before.pnl?.recentLevels != after.pnl?.recentLevels ||
+        before.pnl?.baselineValid != after.pnl?.baselineValid ||
         before.pnl?.value?.div(1000)?.toLong() != after.pnl?.value?.div(1000)?.toLong()
 
 
-fun replayAlerts(saved: AlertLedger, batch: AlertBatch, now: Long = System.currentTimeMillis()): AlertDelivery {
-    val delivery = replayCurrentAlerts(saved.copy(pendingNotifications = emptyList()), batch, now)
-    return delivery.copy(notifications = (saved.pendingNotifications + delivery.notifications).distinctBy { it.id })
+fun replayAlerts(saved: AlertLedger, batch: AlertBatch, now: Long = System.currentTimeMillis(),
+                 pnlContinuous: Boolean = false): AlertDelivery {
+    val delivery = replayCurrentAlerts(saved.copy(pendingNotifications = emptyList()), batch, now, pnlContinuous)
+    // Bot events remain durable. A local price milestone is useful only while
+    // fresh on the same uninterrupted stream and the same open position set.
+    val pending = saved.pendingNotifications.filter { event ->
+        !isLocalPnlMilestone(event) || (pnlContinuous && saved.pnl?.baselineValid == true && batch.openPnl?.let { sample ->
+            sample.activeCount > 0 && now >= sample.sampledAt && now-sample.sampledAt <= 30_000 &&
+                now >= event.timestamp && now-event.timestamp <= 30_000 &&
+                sample.sampledAt >= saved.pnl.sampledAt && event.timestamp <= sample.sampledAt &&
+                event.id.startsWith("pnl_${sample.positionsKey.take(16)}_")
+        } == true)
+    }
+    return delivery.copy(notifications = (pending + delivery.notifications).distinctBy { it.id })
 }
 
-private fun replayCurrentAlerts(saved: AlertLedger, batch: AlertBatch, now: Long): AlertDelivery {
+private fun replayCurrentAlerts(saved: AlertLedger, batch: AlertBatch, now: Long, continuous: Boolean): AlertDelivery {
     batch.validate()
     require(saved.sourceId.isEmpty() || saved.sourceId == batch.instance.id)
-    if (batch.status != "ready") return withPnlMilestones(AlertDelivery(saved, emptyList()), batch.openPnl, now)
+    if (batch.status != "ready") return withPnlMilestones(AlertDelivery(saved, emptyList()), batch.openPnl, now, continuous)
     val bootstrap = saved.sourceId.isEmpty()
     val seen = AlertDeduplicator().apply { restore(saved.history.map { it.id }) }
     val fresh = batch.events.filter { (it.sequence > saved.cursor || batch.gap || bootstrap) && seen.accept(it.id) }
@@ -62,5 +74,5 @@ private fun replayCurrentAlerts(saved: AlertLedger, batch: AlertBatch, now: Long
     val ledger = AlertLedger(batch.instance.id, batch.cursor,
         (saved.history.filterNot(::isRoutineEvaluation) + fresh).takeLast(1000), saved.gap || batch.gap, saved.pnl)
     // Initial history is visible in the inbox but does not produce a notification storm.
-    return withPnlMilestones(AlertDelivery(ledger, if (bootstrap) emptyList() else fresh), batch.openPnl, now)
+    return withPnlMilestones(AlertDelivery(ledger, if (bootstrap) emptyList() else fresh), batch.openPnl, now, continuous)
 }

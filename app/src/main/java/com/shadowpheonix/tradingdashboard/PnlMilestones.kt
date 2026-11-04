@@ -22,7 +22,8 @@ data class PnlCooldownRange(val first: Long, val last: Long, val notifiedAt: Lon
 
 @Serializable
 data class PnlMilestoneState(val positionsKey: String, val value: Double, val sampledAt: Long,
-                             val sequence: Long = 0, val recentLevels: List<PnlCooldownRange> = emptyList())
+                             val sequence: Long = 0, val recentLevels: List<PnlCooldownRange> = emptyList(),
+                             val baselineValid: Boolean = false)
 
 internal data class PnlCrossing(val ranges: List<LongRange>, val rising: Boolean) {
     val count get() = ranges.sumOf { it.last-it.first+1 }
@@ -63,22 +64,28 @@ private fun PnlCrossing.withoutCoolingLevels(recent: List<PnlCooldownRange>): Pn
 private fun pnlMoney(value: Double) = String.format(Locale.US, "%s$%,.2f", if (value < 0) "−" else "+", abs(value))
 
 /** Persist baseline and local event with the bot cursor in one ledger commit. */
-internal fun withPnlMilestones(delivery: AlertDelivery, sample: AlertPnlSample?, now: Long): AlertDelivery {
-    if (sample == null || now < sample.sampledAt || now-sample.sampledAt > 30_000) return delivery
+internal fun withPnlMilestones(delivery: AlertDelivery, sample: AlertPnlSample?, now: Long,
+                               continuous: Boolean): AlertDelivery {
     val saved = delivery.ledger.pnl
-    if (saved != null && sample.sampledAt <= saved.sampledAt) return delivery
+    if (sample == null || now < sample.sampledAt || now-sample.sampledAt > 30_000) {
+        return delivery.copy(ledger = delivery.ledger.copy(pnl = saved?.copy(baselineValid = false)))
+    }
+    if (saved != null && sample.sampledAt <= saved.sampledAt) {
+        return if (continuous) delivery else delivery.copy(ledger = delivery.ledger.copy(pnl = saved.copy(baselineValid = false)))
+    }
     val continuing = saved != null && sample.activeCount > 0 && saved.positionsKey == sample.positionsKey
     val recent = if (continuing) saved!!.recentLevels.filter {
         it.notifiedAt <= sample.sampledAt && sample.sampledAt-it.notifiedAt < PNL_MILESTONE_COOLDOWN_MS
     } else emptyList()
-    val crossing = if (continuing) pnlCrossing(saved!!.value, sample.value)?.withoutCoolingLevels(recent) else null
+    val crossing = if (continuing && continuous && saved!!.baselineValid)
+        pnlCrossing(saved.value, sample.value)?.withoutCoolingLevels(recent) else null
     val sequence = (saved?.sequence ?: 0) + if (crossing != null) 1 else 0
     val state = PnlMilestoneState(sample.positionsKey, sample.value, sample.sampledAt, sequence,
-        recent + crossing?.ranges.orEmpty().map { PnlCooldownRange(it.first,it.last,sample.sampledAt) })
+        recent + crossing?.ranges.orEmpty().map { PnlCooldownRange(it.first,it.last,sample.sampledAt) }, baselineValid = true)
     val event = crossing?.let {
         val level = String.format(Locale.US, "%s$%,.0f", if (it.last < 0) "−" else "+", abs(it.last))
         DashboardAlert("pnl_${sample.positionsKey.take(16)}_$sequence", sample.sampledAt,
-            "${if (sample.value >= 0) "📈" else "📉"} Combined open P&L\n" +
+            "${if (it.rising) "📈" else "📉"} Combined open P&L\n" +
                 "Current P&L: ${pnlMoney(sample.value)}\n" +
                 "Crossed: $level ${if (it.rising) "↑" else "↓"}" +
                 (if (it.count > 1) " (${it.count} levels)" else "") +

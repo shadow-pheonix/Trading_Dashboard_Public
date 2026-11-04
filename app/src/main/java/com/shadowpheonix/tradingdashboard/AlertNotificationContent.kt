@@ -3,7 +3,7 @@ package com.shadowpheonix.tradingdashboard
 internal data class AlertNotificationContent(val headline: String, val preview: String, val body: String)
 
 // The source heading is displayed once as Android's title. Keep the stored
-// message and in-app presentation untouched; only shade/banner layout changes.
+// message untouched; presentAlert supplies the shared directional P&L wording.
 internal fun notificationContent(value: AlertPresentation): AlertNotificationContent {
     val lines = value.details.lines()
     val heading = lines.first()
@@ -12,17 +12,6 @@ internal fun notificationContent(value: AlertPresentation): AlertNotificationCon
     fun field(label: String): String? = details.firstOrNull {
         it.removePrefix("• ").startsWith("$label:", ignoreCase = true)
     }?.substringAfter(':')?.trim()?.takeIf { it.isNotEmpty() }
-
-    val milestone = heading in setOf("📈 Combined open P&L", "📉 Combined open P&L")
-    val money = "[+−-]\\$(?:[0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)"
-    val crossed = details.singleOrNull {
-        Regex("^Crossed: $money [↑↓](?: \\([0-9]+ levels\\))?$").matches(it)
-    }
-    val current = details.singleOrNull { Regex("^Current P&L: $money\\.[0-9]{2}$").matches(it) }
-    if (milestone && crossed != null && current != null) {
-        return AlertNotificationContent("${heading.substringBefore(' ')} Crossed ${crossed.removePrefix("Crossed: ")}",
-            current, lines.drop(1).filterNot { it == crossed }.joinToString("\n").trimStart('\n'))
-    }
 
     val pnl = field("PnL")
     val action = field("Action")

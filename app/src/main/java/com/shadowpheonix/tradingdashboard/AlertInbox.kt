@@ -30,7 +30,7 @@ fun alertDetails(event: DashboardAlert): List<AlertDetail> {
     }.map { line ->
         val text = line.removePrefix("• ")
         val label = text.substringBefore(':', "")
-        if (!text.contains("://") && label.matches(Regex("[A-Za-z][A-Za-z0-9 /()_%+.-]{0,47}")) && text.substringAfter(':').isNotBlank())
+        if (!text.contains("://") && label.matches(Regex("[A-Za-z][A-Za-z0-9 &/()_%+.-]{0,47}")) && text.substringAfter(':').isNotBlank())
             AlertDetail(label, text.substringAfter(':').trim()) else AlertDetail(null, text)
     }
 }

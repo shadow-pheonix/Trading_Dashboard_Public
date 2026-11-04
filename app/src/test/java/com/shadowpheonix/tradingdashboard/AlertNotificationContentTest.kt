@@ -8,7 +8,7 @@ class AlertNotificationContentTest {
 
     @Test fun crossedLevelLeadsCollapsedAndExpandedNotificationWithoutRepeatingHeading() {
         val value = content("📈 Combined open P&L\nCurrent P&L: +$3,393.84\nCrossed: +$3,000 ↑\nScope: All models · All wallets")
-        assertEquals("📈 Crossed +$3,000 ↑", value.headline)
+        assertEquals("📈 Rose above +$3,000", value.headline)
         assertEquals("Current P&L: +$3,393.84", value.preview)
         assertEquals("Current P&L: +$3,393.84\nScope: All models · All wallets", value.body)
         assertFalse(value.body.contains("Crossed")); assertFalse(value.body.contains("Combined open P&L"))
@@ -16,10 +16,10 @@ class AlertNotificationContentTest {
 
     @Test fun negativeAndRecrossMilestonesKeepSignedLevelDirectionAndCount() {
         val value = content("📉 Combined open P&L\nCurrent P&L: −$3,393.84\nCrossed: −$3,000 ↓ (2 levels)\nScope: All models · All wallets")
-        assertEquals("📉 Crossed −$3,000 ↓ (2 levels)", value.headline)
+        assertEquals("📉 Dropped below −$3,000 (2 levels)", value.headline)
         assertEquals("Current P&L: −$3,393.84", value.preview)
         val recovery = content("📉 Combined open P&L\nCurrent P&L: −$2,990.00\nCrossed: −$3,000 ↑\nScope: All models · All wallets")
-        assertEquals("📉 Crossed −$3,000 ↑", recovery.headline)
+        assertEquals("📈 Rose above −$3,000", recovery.headline)
     }
 
     @Test fun tradeEntryUsesOriginalHeadingOnceAndDirectionAndPriceLeadPreview() {

@@ -52,7 +52,7 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   These details do not verify live exchange orders.
 - Settings saves Light, Dark or Use device setting without changing login keys.
 - Settings can [export or clear private diagnostics](docs/DIAGNOSTICS.md) for app,
-  connection and chart issues. Export uses Android’s share sheet.
+  connection and chart issues. Export saves a timestamped ZIP directly to Downloads.
 - The first opening after an update shows a scrollable **What's new** popup after
   unlocking, grouped into New features, Improvements and Bug fixes; empty categories
   are hidden. Dismissing acknowledges that version across all instances. Fresh

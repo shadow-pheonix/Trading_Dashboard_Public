@@ -65,7 +65,7 @@ class AlertStoreTest {
             AlertPnlSample("a".repeat(64),value,3,at,at))
         store.save("main",replayAlerts(AlertLedger(),batch(900.0,100_000),100_000).ledger)
         store.notificationsEnabled("main",false)
-        val delivery=replayAlerts(store.load("main"),batch(1050.0,103_000),103_000)
+        val delivery=replayAlerts(store.load("main"),batch(1050.0,103_000),103_000,pnlContinuous=true)
         assertEquals(1,delivery.notifications.size);assertFalse(store.canNotify("main"))
         store.save("main",delivery.ledger)
         val reopened=AlertStore(memory.prefs)

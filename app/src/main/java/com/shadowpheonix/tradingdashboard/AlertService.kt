@@ -65,11 +65,12 @@ class AlertService : Service() {
             notifications.clearRoutine(connection.id, previous.history)
             store.status(connection.id, "Connecting")
             var ledger = previous
+            // This flag belongs to one socket attempt, never to a saved ledger.
+            var pnlContinuous = false
             api.stream(connection, previous.cursor).collect { batch ->
-                val delivery = replayAlerts(ledger, batch)
-                // Local milestones cannot be reconstructed from the next price.
-                // Persist their history, baseline and pending delivery before posting;
-                // a restart retries stable IDs even if P&L has crossed back meanwhile.
+                val delivery = replayAlerts(ledger, batch, pnlContinuous = pnlContinuous)
+                // Persist before posting. Bot events can replay after a restart;
+                // local price milestones require a fresh, uninterrupted stream.
                 if (delivery.notifications.isNotEmpty()) store.save(connection.id,
                     delivery.ledger.copy(pendingNotifications = delivery.notifications))
                 delivery.notifications.forEach { event ->
@@ -78,6 +79,7 @@ class AlertService : Service() {
                 if (delivery.notifications.isNotEmpty() || alertCheckpointChanged(ledger, delivery.ledger))
                     store.save(connection.id, delivery.ledger)
                 ledger = delivery.ledger
+                pnlContinuous = true
                 store.status(connection.id, if (batch.status != "ready") "Bot event feed unavailable · server setup required"
                     else if (delivery.ledger.gap) "Connected · older events expired" else "Connected")
                 healthy()

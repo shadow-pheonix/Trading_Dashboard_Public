@@ -146,9 +146,12 @@ timeline with 70% of its plot height for price and 30% for MACD,
 excluding top controls and the shared time axis. It starts with the latest 60
 candles, zooms between 12 and 256 and pans throughout the retained history.
 A stable 56 dp right inset (capped at 20% of plot width) leaves space between the
-latest candle and price axis in both orientations. Candles, MACD, entry anchors
-and touch coordinates share the inset width; stop/quote rays extend to the axis.
-The inset creates no synthetic candles and does not reduce the visible candle count.
+latest candle and price axis in both orientations. It sets default candle spacing,
+while the entire plot up to the price axis stays drawable and selectable. Panning
+into the gap reveals real candles, MACD and entry markers there; automatic scales
+include those visible samples. The stored 12–256 zoom setting stays unchanged.
+No clipping, selection clamp or false time boundary is placed at the inset edge,
+and no synthetic candles fill the gap. Stop/quote rays extend to the actual axis.
 Horizontal dragging may move past the latest candle into empty future time. The
 axis projects 15-minute timestamps; candles, MACD and inspection have no invented
 future samples. An entirely future window keeps a recent-data vertical scale,

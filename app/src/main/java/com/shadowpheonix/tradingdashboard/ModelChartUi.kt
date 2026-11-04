@@ -110,8 +110,6 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             DiagnosticField.ManualMacd to if (macdScale.automatic) 0L else 1L,
             DiagnosticField.Inspecting to if (inspecting) 1L else 0L), throttle = true)
     }
-    val priceRange = priceScale.range(chartPriceRange(candles, viewport))
-    val indicatorRange = macdScale.range(chartMacdRange(aligned, viewport))
     fun setWindow(next: ChartViewport, follow: Boolean = window.following) { window = window.moved(next, times, follow) }
     fun latest() { window = ChartWindow(); selectedTime = null; inspecting = false }
     fun autoScales() { priceScale = ChartScale(); macdScale = ChartScale() }
@@ -186,7 +184,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             }
         } else {
             InteractiveModelCanvas(candles, times, model, aligned, annotations, viewport, selectedIndex, inspecting,
-                priceRange, indicatorRange, priceScale, macdScale, window.following, showMacd, priceFraction,
+                priceScale, macdScale, window.following, showMacd, priceFraction,
                 onWindow = ::setWindow, onInspect = { index -> selectedTime = times[index]; inspecting = true },
                 onPriceScale = { priceScale = it }, onMacdScale = { macdScale = it },
                 onLatest = ::latest, onReset = ::reset, modifier = Modifier.weight(1f).fillMaxWidth().onSizeChanged {
@@ -219,7 +217,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
 @Composable
 private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>, model: MacdModel?,
     aligned: List<MacdPoint?>, annotations: List<ChartTradeAnnotation>, viewport: ChartViewport, selectedIndex: Int?, inspecting: Boolean,
-    priceRange: ChartRange, indicatorRange: ChartRange, priceScale: ChartScale, macdScale: ChartScale, following: Boolean, showMacd: Boolean, priceFraction: Float,
+    priceScale: ChartScale, macdScale: ChartScale, following: Boolean, showMacd: Boolean, priceFraction: Float,
     onWindow: (ChartViewport, Boolean) -> Unit, onInspect: (Int) -> Unit,
     onPriceScale: (ChartScale) -> Unit, onMacdScale: (ChartScale) -> Unit,
     onLatest: () -> Unit, onReset: () -> Unit, modifier: Modifier) {
@@ -232,6 +230,13 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
     val axisWidth = with(density) { maxOf(64.dp.toPx(), priceWidth + 14.dp.toPx()) }
     val axisWidthDp = with(density) { axisWidth.toDp() }
     val trailingSpace = with(density) { 56.dp.toPx() }
+    BoxWithConstraints(modifier) {
+    // Resolve geometry before drawing: the inset controls spacing, never clipping or data visibility.
+    val plotWidth = (constraints.maxWidth.toFloat() - axisWidth).coerceAtLeast(1f)
+    val contentWidth = chartContentWidth(plotWidth, trailingSpace)
+    val plotViewport = viewport.forPlot(plotWidth, contentWidth)
+    val priceRange = priceScale.range(chartPriceRange(candles, plotViewport))
+    val indicatorRange = macdScale.range(chartMacdRange(aligned, plotViewport))
     val currentViewport by rememberUpdatedState(viewport)
     val currentInspecting by rememberUpdatedState(inspecting)
     val currentOnWindow by rememberUpdatedState(onWindow)
@@ -248,7 +253,9 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
     val currentTotal by rememberUpdatedState(times.size)
     var plotPrice by remember(model?.id) { mutableStateOf(true) }
     fun inspect(x: Float, width: Float) {
-        currentViewport.indexAt((x / chartContentWidth(width, trailingSpace)).toDouble(), currentTotal)?.let(currentOnInspect)
+        val fullWidth = width.coerceAtLeast(1f)
+        currentViewport.forPlot(fullWidth, chartContentWidth(fullWidth, trailingSpace))
+            .indexAt((x / fullWidth).toDouble(), currentTotal)?.let(currentOnInspect)
     }
     val gestures = Modifier
         .pointerInput(model?.id) {
@@ -266,7 +273,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
                 if (currentInspecting && abs(zoom - 1f) < 0.001f) inspect(centroid.x + pan.x, size.width.toFloat())
                 else {
                     val next = currentViewport.transform(currentTotal, zoom.toDouble(),
-                        (pan.x / width).toDouble(), (centroid.x / width).toDouble())
+                        (pan.x / width).toDouble(), (centroid.x.coerceIn(0f,size.width.toFloat()) / width).toDouble())
                     currentOnWindow(next, currentFollowing && abs(pan.x) < 0.01f && abs(next.first+next.count-currentTotal) < 0.001)
                     val height = size.height.toFloat()
                     if (plotPrice && !currentPriceScale.automatic) {
@@ -282,24 +289,22 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
                 }
             }
         }
-    Box(modifier) {
     Canvas(Modifier.matchParentSize().semantics {
         contentDescription = (if (showMacd) "${model?.id ?: "Model"} chart. Candles above MACD in a 70 to 30 split." else "BTC chart. Price candles only, with all model overlays.") + " Pinch to zoom, drag to pan, hold or use crosshair to inspect. Drag the right axis for manual vertical scale. ${candles.size} candle samples across ${times.size} time slots; an unavailable forming slot stays empty."
     }) {
         val layout = chartPaneLayout(size.width, size.height, axisWidth, 28.dp.toPx(), showMacd)
         val right = layout.plotWidth
-        val contentRight = chartContentWidth(right, trailingSpace)
         val priceTop = 12.dp.toPx(); val priceBottom = (layout.priceHeight - 12.dp.toPx()).coerceAtLeast(priceTop + 1)
         val macdTop = layout.priceHeight + minOf(28.dp.toPx(), layout.macdHeight * 0.30f)
         val macdBottom = (layout.plotHeight - 8.dp.toPx()).coerceAtLeast(macdTop + 1)
-        val visibleIndices = viewport.visibleIndices(times.size)
+        val visibleIndices = plotViewport.visibleIndices(times.size)
         val from = visibleIndices.first
-        val step = contentRight / viewport.count.toFloat()
-        fun x(index: Int) = viewport.candleX(index, contentRight)
-        val shownCandles = chartVisible(candles, viewport)
+        val step = right / plotViewport.count.toFloat()
+        fun x(index: Int) = plotViewport.candleX(index, right)
+        val shownCandles = chartVisible(candles, plotViewport)
         val stops = if (candles.isEmpty()) emptyList() else annotations.mapNotNull { trade ->
             val index = entryCandleIndex(trade, times)
-            if (index != null && trade.stopPrice != null && stopLineStart(index, viewport, contentRight) != null) index to trade else null
+            if (index != null && trade.stopPrice != null && stopLineStart(index, plotViewport, right) != null) index to trade else null
         }
         val entries = if (candles.isEmpty()) emptyList() else entryChartMarkers(annotations, times).filter { it.index in visibleIndices }
         fun priceY(value: Double) = priceTop + (priceBottom - priceTop) * priceRange.fraction(value)
@@ -320,11 +325,11 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
             if (candles.isNotEmpty()) label(chartNumber(priceRange.high - (priceRange.high - priceRange.low) * i / 4),
                 right + 6.dp.toPx(), y - 6.dp.toPx())
         }
-        val firstTick = floor(viewport.first).toInt()
-        listOf(firstTick, floor(viewport.first + viewport.count / 2).toInt(), ceil(viewport.first + viewport.count).toInt() - 1)
+        val firstTick = floor(plotViewport.first).toInt()
+        listOf(firstTick, floor(plotViewport.first + plotViewport.count / 2).toInt(), ceil(plotViewport.first + plotViewport.count).toInt() - 1)
             .distinct().forEach { index ->
             val stamp = chartTimestamp(times, index) ?: return@forEach
-            val xx = x(index).coerceIn(0f, contentRight)
+            val xx = x(index).coerceIn(0f, right)
             drawLine(line, Offset(xx, 0f), Offset(xx, layout.plotHeight))
             val text = chartTime(stamp, if (index == firstTick) "dd MMM HH:mm" else "HH:mm")
             val measured = measurer.measure(text, labelStyle)
@@ -333,7 +338,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
         }
         drawLine(line, Offset(right, 0f), Offset(right, layout.plotHeight))
         drawLine(colors.outlineVariant, Offset(0f, layout.priceHeight), Offset(size.width, layout.priceHeight))
-        clipRect(0f, priceTop, contentRight, priceBottom) {
+        clipRect(0f, priceTop, right, priceBottom) {
             drawPriceCandles(shownCandles, { x(it + from) }, step, ::priceY, colors.secondary, colors.error)
         }
         if (candles.isEmpty()) label("15-minute candles unavailable", 12.dp.toPx(), layout.priceHeight / 2)
@@ -348,10 +353,10 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
         }
         clipRect(0f, priceTop, right, priceBottom) {
             stops.forEach { (index, trade) ->
-                val start = stopLineStart(index, viewport, contentRight)!!
+                val start = stopLineStart(index, plotViewport, right)!!
                 val yy = priceY(trade.stopPrice!!)
                 drawLine(colors.error, Offset(start, yy), Offset(right, yy), 1.dp.toPx(), pathEffect = dashed)
-                if (x(index) in 0f..contentRight) drawCircle(colors.error, 2.5.dp.toPx(), Offset(start, yy))
+                if (x(index) in 0f..right) drawCircle(colors.error, 2.5.dp.toPx(), Offset(start, yy))
             }
         }
         val rayModels = stops.map { it.second.modelId }.toSet()
@@ -359,7 +364,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
             axisBadge(tradePrice(price), priceY(price), colors.background, colors.error)
         }
         val occupied = mutableListOf<androidx.compose.ui.geometry.Rect>()
-        clipRect(0f, priceTop, contentRight, priceBottom) {
+        clipRect(0f, priceTop, right, priceBottom) {
             entries.forEach { marker ->
                 val candle = candles.getOrNull(marker.index) ?: return@forEach
                 val long = marker.side == "LONG"
@@ -381,9 +386,9 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
                 drawLine(color, Offset(xx, base), Offset(xx, base + direction * 5.dp.toPx()), 2.dp.toPx())
                 val text = measurer.measure(entryAnnotationLabel(marker, includeModel = !showMacd), labelStyle.copy(color = color))
                 val height = text.size.height + 6.dp.toPx()
-                val width = (text.size.width + 8.dp.toPx()).coerceAtMost(contentRight)
+                val width = (text.size.width + 8.dp.toPx()).coerceAtMost(right)
                 val preferredY = if (long) base + 7.dp.toPx() else base - height - 7.dp.toPx()
-                val rect = entryLabelRect(xx, preferredY, width, height, contentRight, priceTop, priceBottom, occupied)
+                val rect = entryLabelRect(xx, preferredY, width, height, right, priceTop, priceBottom, occupied)
                 occupied.add(rect)
                 drawRect(colors.surface.copy(alpha = 0.96f), rect.topLeft, rect.size)
                 drawRect(color.copy(alpha = 0.7f), rect.topLeft, rect.size, style = Stroke(0.7.dp.toPx()))
@@ -400,7 +405,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
         }
         val zero = macdY(0.0)
         if (zero in macdTop..macdBottom) drawLine(line, Offset(0f, zero), Offset(right, zero), pathEffect = dashed)
-        clipRect(0f, macdTop, contentRight, macdBottom) {
+        clipRect(0f, macdTop, right, macdBottom) {
             visibleIndices.forEach { index -> aligned[index]?.let { point ->
                 drawLine((if (point.histogram >= 0) colors.secondary else colors.error).copy(alpha = 0.65f),
                     Offset(x(index), zero), Offset(x(index), macdY(point.histogram)), (step * 0.65f).coerceAtLeast(1f))
@@ -435,7 +440,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
         }
         }
         selectedIndex?.takeIf { it in visibleIndices }?.let { index ->
-            val xx = x(index).coerceIn(0f, contentRight)
+            val xx = x(index).coerceIn(0f, right)
             drawLine(colors.onSurfaceVariant, Offset(xx, 0f), Offset(xx, layout.plotHeight), pathEffect = dashed)
             candles.getOrNull(index)?.let { selected ->
                 val yy = priceY(selected.close)
@@ -446,7 +451,7 @@ private fun InteractiveModelCanvas(candles: List<PriceCandle>, times: List<Long>
                 }
             }
             if (showMacd) aligned[index]?.let { selected ->
-                clipRect(0f,macdTop,contentRight,macdBottom) {
+                clipRect(0f,macdTop,right,macdBottom) {
                     drawCircle(colors.primary, 3.dp.toPx(), Offset(xx, macdY(selected.macd)))
                     drawCircle(colors.secondary, 2.5.dp.toPx(), Offset(xx, macdY(selected.signal)))
                 }

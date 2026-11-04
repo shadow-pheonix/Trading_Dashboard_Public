@@ -17,13 +17,17 @@ internal data class ChartViewport(val first: Double, val count: Double) {
     fun transform(total: Int, zoom: Double, panFraction: Double, anchorFraction: Double): ChartViewport {
         val current = bounded(total)
         if (!zoom.isFinite() || zoom <= 0 || !panFraction.isFinite() || !anchorFraction.isFinite()) return current
-        val anchor = anchorFraction.coerceIn(0.0, 1.0)
+        val anchor = anchorFraction.coerceAtLeast(0.0) // The right gap lies beyond the nominal data width.
         val shown = (current.count / zoom).coerceIn(minOf(12.0, total.coerceAtLeast(1).toDouble()), minOf(MAX_VISIBLE_CHART_CANDLES.toDouble(),total.coerceAtLeast(1).toDouble()))
         return ChartViewport(current.first + current.count * anchor - shown * anchor - panFraction * shown, shown).bounded(total)
     }
 
     fun candleX(index: Int, width: Float): Float =
         ((index + 0.5 - first) / count * width).toFloat()
+
+    /** Resolve all data visible across the full plot, including the default right gap. */
+    fun forPlot(plotWidth: Float, contentWidth: Float): ChartViewport =
+        copy(count = count * plotWidth.coerceAtLeast(1f) / contentWidth.coerceAtLeast(1f))
 
     fun visibleIndices(total: Int): IntRange {
         val from = floor(first).toInt().coerceIn(0, total.coerceAtLeast(0))

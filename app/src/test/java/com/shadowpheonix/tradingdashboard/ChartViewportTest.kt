@@ -159,6 +159,59 @@ class ChartViewportTest {
         }
     }
 
+    @Test fun pannedCandlesInsideDefaultGapStayVisibleSelectableAndIncludedInScales() {
+        val times=(0..255).map {1800000000000L+it*MACD_INTERVAL}
+        for ((width,height) in listOf(360f to 640f,800f to 240f,280f to 400f)) {
+            for (showMacd in listOf(false,true)) {
+                val layout=chartPaneLayout(width,height,64f,28f,showMacd)
+                val content=chartContentWidth(layout.plotWidth,56f)
+                val nominal=ChartViewport(100.0,60.0)
+                val inGap=times.indices.filter {nominal.candleX(it,content)>content && nominal.candleX(it,content)<layout.plotWidth}
+                assertTrue(inGap.isNotEmpty())
+                val index=inGap[inGap.size/2]
+                val full=nominal.forPlot(layout.plotWidth,content)
+                assertTrue("A real candle in the right gap must remain drawable",index in full.visibleIndices(times.size))
+                assertEquals(nominal.candleX(index,content),full.candleX(index,layout.plotWidth),0.001f)
+                val x=nominal.candleX(index,content)
+                assertEquals(index,full.indexAt((x/layout.plotWidth).toDouble(),times.size))
+                assertEquals(x,stopLineStart(index,full,layout.plotWidth)!!,0.001f)
+                val candles=times.indices.map {PriceCandle(times[it],100.0,if(it==index)200.0 else 110.0,90.0,105.0)}
+                assertTrue(candles[index] in chartVisible(candles,full))
+                assertTrue(chartPriceRange(candles,full).high>200.0)
+                val points=times.indices.map {if(it==index)MacdPoint(times[it],25.0,20.0,5.0) else null}
+                assertTrue(chartMacdRange(points,full).high>25.0)
+                assertTrue(full.visibleIndices(times.size).all {full.candleX(it,layout.plotWidth)<layout.plotWidth+layout.plotWidth/full.count})
+            }
+        }
+    }
+
+    @Test fun fullPlotDoesNotFillDefaultGapWithFakeDataOrChangeCandleSpacing() {
+        val times=(0..255).map {it*MACD_INTERVAL}
+        for (width in listOf(216f,296f,736f)) {
+            val content=chartContentWidth(width,56f)
+            for (count in listOf(12.0,60.0,256.0)) {
+                val nominal=ChartViewport.latest(256,count)
+                val full=nominal.forPlot(width,content)
+                assertEquals(count,nominal.count,0.0)
+                assertEquals(content/count,width/full.count,0.00001)
+                assertEquals(chartVisible(times,nominal),chartVisible(times,full))
+                assertNull(full.indexAt(1.0,256))
+                assertTrue(full.candleX(255,width)<content)
+            }
+        }
+    }
+
+    @Test fun pinchInRightGapKeepsItsCandleUnderTheFingers() {
+        for (width in listOf(296f,736f)) {
+            val content=chartContentWidth(width,56f)
+            val before=ChartViewport(100.0,60.0)
+            val index=(0..255).first {before.candleX(it,content)>content && before.candleX(it,content)<width}
+            val x=before.candleX(index,content)
+            val zoomed=before.transform(256,2.0,0.0,(x/content).toDouble())
+            assertEquals(x,zoomed.candleX(index,content),0.001f)
+        }
+    }
+
     @Test fun rightMarginKeepsLiveCandleAwayFromAxisInBothOrientationsAndAllZoomLevels() {
         for ((width,height) in listOf(360f to 640f,800f to 240f,280f to 400f)) {
             for (showMacd in listOf(false,true)) {

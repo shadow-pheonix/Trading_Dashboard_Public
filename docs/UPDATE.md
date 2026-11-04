@@ -207,6 +207,11 @@ Check the default right-side gap between the newest candle and price axis in
 portrait/landscape, at 12/60/256 candle zoom, after Follow latest and on rollover.
 Candles, MACD and entries must align, with tap/crosshair/pinch/pan targeting the
 same candle; no fake candles or fewer retained candles may fill the gap.
+Pan historical candles through the default gap toward the actual price axis.
+Candles, MACD, entry arrows and stop-ray anchors must remain visible and
+inspectable there; auto scales must include their highs/lows and indicator values.
+Repeat in both orientations and all fullscreen chart modes, including a marker
+partly crossing the gap edge and a candle close to the real price axis.
 Drag the latest candle left into a larger empty future area, including an entirely
 empty window. Verify future time ticks, no fabricated candles/MACD or selectable
 future data, no false unavailable message and a usable recent-data price scale.

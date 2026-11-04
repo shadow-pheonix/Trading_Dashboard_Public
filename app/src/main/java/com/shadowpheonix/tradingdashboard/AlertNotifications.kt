@@ -8,10 +8,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
@@ -21,10 +17,7 @@ import android.text.Spanned
 import android.text.style.StyleSpan
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.app.Person
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.IconCompat
-import java.util.Locale
 
 const val ALERT_CONNECTION_CHANNEL = "alerts_connection"
 const val ALERT_SUMMARY_CHANNEL = "alerts_summary"
@@ -96,21 +89,6 @@ class AlertNotifications(private val context: Context) {
         return PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    private fun avatar(connectionId: String, instance: String): Bitmap {
-        val bitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val palette = intArrayOf(0xff476acc.toInt(), 0xff168174.toInt(), 0xff8054b6.toInt(), 0xffa45e26.toInt())
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette[Math.floorMod(connectionId.hashCode(), palette.size)] }
-        canvas.drawCircle(64f, 64f, 64f, paint)
-        paint.color = Color.WHITE
-        paint.textSize = 39f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.textAlign = Paint.Align.CENTER
-        val initials = instance.filter { it.isLetterOrDigit() }.take(3).uppercase(Locale.ROOT).ifEmpty { "TD" }
-        canvas.drawText(initials, 64f, 64f - (paint.descent() + paint.ascent()) / 2f, paint)
-        return bitmap
-    }
-
     private fun richText(text: String) = SpannableString(text).apply {
         notificationBoldRanges(text).forEach { range ->
             setSpan(StyleSpan(Typeface.BOLD), range.first, range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -141,34 +119,31 @@ class AlertNotifications(private val context: Context) {
         val existing = activeCards()[tag]
         val pendingIds = existing?.extras?.getStringArrayList(PENDING_IDS).orEmpty()
         val thread = notificationThread(recent, pendingIds, event)
-        val image = avatar(connectionId, instance)
-        val style = NotificationCompat.MessagingStyle(Person.Builder().setName("You").build())
-            .setConversationTitle("$instance · ${notificationTopic(value)}").setGroupConversation(true)
-        thread.displayed.forEach { message ->
-            val presentation = presentAlert(instance, message)
-            val sender = Person.Builder().setName(presentation.title.removePrefix("$instance · "))
-                .setKey("$connectionId:${presentation.title}").setBot(true)
-                .setIcon(IconCompat.createWithBitmap(image)).build()
-            style.addMessage(richText(presentation.details), message.timestamp, sender)
-        }
-        val open = intent(connectionId, event.id)
+        val current = thread.displayed.lastOrNull() ?: event
+        val messages = thread.displayed.map { notificationContent(presentAlert(instance, it)) }
+        val content = messages.lastOrNull() ?: notificationContent(value)
+        val style = NotificationCompat.BigTextStyle().setBigContentTitle(content.headline)
+            .bigText(richText(notificationExpandedText(messages)))
+        if (thread.events.size > 1) style.setSummaryText(notificationCount(thread.events.size))
+        val open = intent(connectionId, current.id)
         val notification = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle(value.title).setContentText(value.preview)
-            .setLargeIcon(image).setStyle(style).setSubText(notificationCount(thread.events.size))
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle(content.headline).setContentText(content.preview)
+            .setStyle(style).setSubText(instance.take(40))
             .setColor(if (value.urgent) 0xffc43d4d.toInt() else 0xff476acc.toInt())
             .setContentIntent(open).setDeleteIntent(deleteIntent(connectionId, tag))
             .setAutoCancel(true).setOnlyAlertOnce(!thread.isNew).setNumber(thread.events.size)
             .setAllowSystemGeneratedContextualActions(false)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setWhen(event.timestamp).setShowWhen(true).setGroup(group)
-            .setSortKey((Long.MAX_VALUE - event.timestamp).toString().padStart(19, '0'))
+            .setWhen(current.timestamp).setShowWhen(true).setGroup(group)
+            .setSortKey((Long.MAX_VALUE - current.timestamp).toString().padStart(19, '0'))
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(publicVersion(channel))
             .setCategory(if (value.urgent) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_EVENT)
+            .addAction(0, "Open dashboard", open)
             .addExtras(Bundle().apply {
                 putStringArrayList(PENDING_IDS, ArrayList(thread.events.map { it.id }))
                 putString(INSTANCE_LABEL, instance)
-                putString(SUMMARY_PREVIEW, "${value.title.removePrefix("$instance · ")} · ${value.preview}")
+                putString(SUMMARY_PREVIEW, listOf(content.headline, content.preview).filter(String::isNotBlank).joinToString(" · "))
             })
             .build()
         manager.notify(tag, 1, notification)

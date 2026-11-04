@@ -133,15 +133,23 @@ Android channels, eligible for floating banners, sound and vibration. Existing
 installations get new floating trade/risk/report channels because Android cannot
 raise an existing channel's importance. Explicitly blocked legacy categories
 stay blocked; user channel settings and Do Not Disturb remain authoritative.
-Shade and floating alerts use Android's native MessagingStyle, as Telegram does,
-with instance avatars, explicit model/wallet headings, original emoji/paragraphs
-and bold headings/field labels. Each instance/category has one expanding message
-card; urgent risk stays separate from routine reports. Category channel settings
-remain authoritative. A new event can alert again; replaying an event already in
+Shade and floating alerts use native BigTextStyle with no large avatar or
+extra sender/category heading. The instance appears in Android's small header;
+each alert's own first line becomes its title once, with the remaining message
+on expansion. P&L milestones instead lead with `Crossed +$3,000 ↑` (including
+the original sign, direction and multi-level count), followed by current P&L.
+Entry previews lead with direction/entry/SL, closed trades with P&L, and skipped
+trades with their reason. Original emoji, paragraphs and fields remain available;
+stored messages and the in-app history are unchanged. Each instance/category
+has one expanding card; urgent risk stays separate from routine reports.
+Category channel settings remain authoritative. A new event can alert again; replaying an event already in
 the card updates it quietly. Rapid bursts remain buffered until Android
 acknowledges the submitted card. The silent grouped summary counts only pending
 cards, rather than the whole saved history. Each card retains up to 100 recent
-event IDs and displays the latest six messages; larger counts show 100+.
+event IDs and displays the latest six messages, latest details first; larger
+counts show 100+. Android may truncate expanded text; complete messages remain
+in authenticated history. The Open dashboard action uses the same locked route
+as tapping the notification and offers no trading action.
 
 Swiping away a card starts its next count fresh; summary counts refresh on
 dismissal. Opening the authenticated alert page clears notifications for the
@@ -151,8 +159,8 @@ is preserved when muting or viewing it. Lock-screen public content hides trading
 details. Taps open authenticated history with the complete saved message when
 Android limits the expanded text. No trading/reply actions or automatically
 suggested link actions are offered. Android/HyperOS, channel settings and Do Not
-Disturb determine the final banner appearance and sound; matching Telegram's
-native layout does not guarantee identical rendering or floating delivery.
+Disturb determine the final banner appearance, available text width and sound;
+the preview mockups do not guarantee identical rendering or floating delivery.
 
 A special-use foreground service maintains the alert connection after leaving
 the UI. Settings → Bot alerts → Hide connection indicator opens Android's

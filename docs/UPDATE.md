@@ -217,7 +217,10 @@ Force stop requires reopening. Check that disabling alerts stops the receiver.
 Verify [P&L milestones](ALERTS.md#combined-open-pl-milestones) with synthetic
 positive/negative crossings, 15-minute per-level cooldown/expiry, immediate new
 levels, muted instances and reconnect. Check
-current totals in floating/shade/inbox views. A first sample, closing trade or
+current totals in floating/shade/inbox views. In collapsed and floating P&L
+notifications, confirm the crossed level is the title and current P&L is below.
+Other notifications must show their source heading once without a large avatar;
+expand a burst and check latest details precede earlier messages. A first sample, closing trade or
 position-set change must not create an alert. Do not place a trade to test this.
 
 Confirm Analytics and Trades headings above the period bar, source/model filters

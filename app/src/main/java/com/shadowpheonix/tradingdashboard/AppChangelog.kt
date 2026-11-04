@@ -26,12 +26,10 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // Replace this list with the changes included in each release. The installed
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
-    ChangelogChange(ChangelogCategory.NewFeatures,
-        "Export or clear private app diagnostics from Settings to help investigate connection and chart issues. Keys, server addresses and alert text are excluded."),
-    ChangelogChange(ChangelogCategory.NewFeatures,
-        "Rotate any full-screen Strategies chart between portrait and landscape using its rotation button. Charts open in portrait; your zoom, pan and manual scales survive rotation."),
     ChangelogChange(ChangelogCategory.Improvements,
-        "Analytics now opens on the equity curve in percent, starting at 0%, using edge_engine.py’s compounded return calculation. The open-P&L snapshot estimate remains included when available."),
+        "P&L notifications lead with the crossed dollar level, followed by current P&L. Trade entry previews show direction and price; closed trades show P&L first; skipped trades show their reason."),
+    ChangelogChange(ChangelogCategory.BugFixes,
+        "Removed repeated notification headings and large instance avatars. Alerts use their own heading once, with the instance in Android’s small header and full details on expansion or in alert history."),
 )
 
 @Composable

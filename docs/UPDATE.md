@@ -262,7 +262,13 @@ the connection must stay open. Analytics must hold its snapshot through repeated
 live updates and time passing, including the All models / All view. Re-entering
 Analytics, changing a filter or manual refresh must load a new snapshot; Home
 and Trades must continue updating. Check that Analytics opens on Equity with percentage growth from 0%;
-raw P&L views retain their monetary units. Inspect the final dashed chart segment:
+raw P&L views retain their monetary units. Both Equity and Recorded equity must
+show a red percentage drawdown pane below.
+Tap/drag either pane and use previous/next: both crosshairs and values must inspect
+the same timestamp. Check zero drawdown at new peaks, a first-trade loss, recovery,
+flat/single-point data, missing capital, and source/period/model changes. Drawdown
+must use that displayed equity scope, while the lifetime real DD cards stay independent.
+Inspect the final dashed segment on both panes:
 the last close and current snapshot must occupy their own time positions, with
 the elapsed time visible horizontally. Test the Fingerprint unlock switch across
 closing/reopening: disabled opens directly; enabled requires Android authentication

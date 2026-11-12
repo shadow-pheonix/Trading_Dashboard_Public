@@ -52,6 +52,21 @@ fun displayedChartSeries(snapshot: DashboardSnapshot, view: ChartView): ChartSer
     return ChartSeries(series.recorded.map(::percent), series.captured?.let(::percent))
 }
 
+// Drawdown needs equity levels, never the displayed percentage return (whose base is zero).
+// Keep every timestamp and the separate captured estimate aligned with the equity pane.
+fun equityDrawdownSeries(snapshot: DashboardSnapshot, view: ChartView): ChartSeries? {
+    if (view != ChartView.NormalizedEquity && view != ChartView.Equity) return null
+    val series = chartSeries(snapshot, view)
+    if (series.samples.isEmpty() || series.samples.any { !it.value.isFinite() || it.value < 0 }) return null
+    var peak = (if (view == ChartView.NormalizedEquity) snapshot.normalizedEquity?.baseEquity
+        else series.recorded.firstOrNull()?.value)?.takeIf { it.isFinite() && it > 0 } ?: return null
+    fun drawdown(point: ChartSample): ChartSample {
+        peak = maxOf(peak, point.value)
+        return point.copy(value = (point.value / peak - 1) * 100)
+    }
+    return ChartSeries(series.recorded.map(::drawdown), series.captured?.let(::drawdown))
+}
+
 fun equityPercent(value: Double): String = String.format(Locale.US, "%+.2f%%", if (abs(value) < 0.005) 0.0 else value)
 
 fun chartPercentAxisLabel(value: Double): String = when {

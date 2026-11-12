@@ -45,10 +45,12 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   for either history source and model selection.
   Cumulative and reference-equity views show a captured point including active P&L
   for Real money. Tap, drag or use previous/next controls to inspect points.
+  Both equity views include a red percentage drawdown pane underneath, sharing
+  the same timeline, selected point and filters. Touch either pane to inspect both.
   The [chart contract](docs/API-v2.md#edge-monitor-equity-and-chart-inspection)
   defines capital requirements and legacy estimates. Recorded equity is offered
-  only if actual samples exist. Cash-flow-adjusted return, percentage equity
-  drawdown and Sharpe require actual capital history.
+  only if actual samples exist. Cash-flow-adjusted return and Sharpe require
+  actual capital history.
 - Tap an active trade to see combined leverage and a shared recorded stop.
   These details do not verify live exchange orders.
 - Settings saves Light, Dark or Use device setting without changing login keys.

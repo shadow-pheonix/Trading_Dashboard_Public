@@ -492,11 +492,26 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
     val bars = view == ChartView.Daily || view == ChartView.Monthly
     val equity = view == ChartView.Equity || view == ChartView.NormalizedEquity
     val series = remember(snapshot, view) { displayedChartSeries(snapshot, view) }
+    val drawdownSeries = remember(snapshot, view) { equityDrawdownSeries(snapshot, view) }
     val recorded = series.recorded
     val samples = series.samples
     val live = series.captured
     var selection by remember(snapshot.instance, snapshot.period, snapshot.selectedModel, snapshot.historyMode, view) {
         mutableStateOf<Int?>(null)
+    }
+    // Both panes use the same plot width, timeline and selected point.
+    val axisWidth = if (equity) 56.dp else 44.dp
+    val inspection = Modifier.pointerInput(samples) {
+        detectTapGestures { point ->
+            val inset = 6.dp.toPx()
+            selection = closestChartSample(samples, ((point.x - inset) / (size.width - 2 * inset).coerceAtLeast(1f)).toDouble())
+        }
+    }.pointerInput(samples) {
+        detectHorizontalDragGestures { change, _ ->
+            change.consume()
+            val inset = 6.dp.toPx()
+            selection = closestChartSample(samples, ((change.position.x - inset) / (size.width - 2 * inset).coerceAtLeast(1f)).toDouble())
+        }
     }
     val index = (selection ?: samples.lastIndex).coerceIn(0, maxOf(0, samples.lastIndex))
     val title = when (view) {
@@ -552,18 +567,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
             Row(Modifier.fillMaxWidth().height(210.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Canvas(Modifier.weight(1f).fillMaxHeight().semantics {
                     contentDescription = "$title, ${sampleDate(inspected.timestamp)}, ${if (view == ChartView.NormalizedEquity) equityPercent(inspected.value) else number(inspected.value)}"
-                }.pointerInput(samples) {
-                    detectTapGestures { point ->
-                        val inset = 6.dp.toPx()
-                        selection = closestChartSample(samples, ((point.x - inset) / (size.width - 2 * inset).coerceAtLeast(1f)).toDouble())
-                    }
-                }.pointerInput(samples) {
-                    detectHorizontalDragGestures { change, _ ->
-                        change.consume()
-                        val inset = 6.dp.toPx()
-                        selection = closestChartSample(samples, ((change.position.x - inset) / (size.width - 2 * inset).coerceAtLeast(1f)).toDouble())
-                    }
-                }) {
+                }.then(inspection)) {
                     val inset = 6.dp.toPx()
                     fun x(i: Int): Float = inset + (size.width - 2 * inset) *
                         chartTimeFraction(samples, samples[i].timestamp).toFloat()
@@ -605,7 +609,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
                     drawCircle(accent.copy(alpha = 0.15f), 9.dp.toPx(), Offset(x(index), y(inspected.value)))
                     drawCircle(accent, 4.dp.toPx(), Offset(x(index), y(inspected.value)))
                 }
-                Column(Modifier.width(if (view == ChartView.NormalizedEquity) 56.dp else 44.dp).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween,
+                Column(Modifier.width(axisWidth).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End) {
                     (0..3).forEach { n ->
                         val tick = bounds.high - (bounds.high - bounds.low) * n / 3
@@ -613,14 +617,74 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
                     }
                 }
             }
-            if (samples.size > 1) Row(Modifier.fillMaxWidth().padding(end = 54.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (equity) {
+                val drawdowns = drawdownSeries?.samples.orEmpty()
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Drawdown", color = Muted, fontSize = 12.sp)
+                    Text(drawdowns.getOrNull(index)?.value?.let { equityPercent(it).removePrefix("+") } ?: "—",
+                        color = negative, style = Numeric, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                }
+                if (drawdownSeries == null) Text("Drawdown needs a positive equity baseline.", color = Muted, fontSize = 11.sp)
+                else {
+                    val ddBounds = chartBounds(drawdowns.map { it.value }, true).copy(high = 0.0)
+                    Row(Modifier.fillMaxWidth().height(110.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Canvas(Modifier.weight(1f).fillMaxHeight().semantics {
+                            contentDescription = "Drawdown, ${sampleDate(inspected.timestamp)}, ${chartPercentAxisLabel(drawdowns[index].value)}. Linked to equity inspection."
+                        }.then(inspection)) {
+                            val inset = 6.dp.toPx()
+                            fun x(i: Int) = inset + (size.width - 2 * inset) * chartTimeFraction(samples, samples[i].timestamp).toFloat()
+                            fun y(value: Double) = (size.height * value / ddBounds.low).toFloat()
+                            (0..2).forEach { n ->
+                                val yy = size.height * n / 2
+                                drawLine(grid.copy(alpha = 0.6f), Offset(0f, yy), Offset(size.width, yy), 0.7.dp.toPx())
+                            }
+                            val closed = drawdownSeries.recorded
+                            if (closed.isNotEmpty()) {
+                                val line = Path()
+                                closed.forEachIndexed { i, point ->
+                                    if (i == 0) line.moveTo(x(i), y(point.value)) else line.lineTo(x(i), y(point.value))
+                                }
+                                val fill = Path().apply {
+                                    addPath(line); lineTo(x(closed.lastIndex), 0f); lineTo(x(0), 0f); close()
+                                }
+                                drawPath(fill, negative.copy(alpha = 0.23f))
+                                drawPath(line, negative, style = Stroke(2.dp.toPx()))
+                            }
+                            drawdownSeries.captured?.let { mark ->
+                                closed.lastOrNull()?.let { last ->
+                                    val estimate = Path().apply {
+                                        moveTo(x(closed.lastIndex), 0f); lineTo(x(closed.lastIndex), y(last.value))
+                                        lineTo(x(drawdowns.lastIndex), y(mark.value)); lineTo(x(drawdowns.lastIndex), 0f); close()
+                                    }
+                                    drawPath(estimate, negative.copy(alpha = 0.12f))
+                                    drawLine(negative, Offset(x(closed.lastIndex), y(last.value)), Offset(x(drawdowns.lastIndex), y(mark.value)),
+                                        2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
+                                }
+                                drawCircle(accent, 4.dp.toPx(), Offset(x(drawdowns.lastIndex), y(mark.value)))
+                            }
+                            val point = Offset(x(index), y(drawdowns[index].value))
+                            drawLine(accent.copy(alpha = 0.25f), Offset(point.x, 0f), Offset(point.x, size.height), 1.dp.toPx())
+                            drawCircle(accent.copy(alpha = 0.15f), 8.dp.toPx(), point)
+                            drawCircle(accent, 3.5.dp.toPx(), point)
+                        }
+                        Column(Modifier.width(axisWidth).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween,
+                            horizontalAlignment = Alignment.End) {
+                            (0..2).forEach { n -> Text(chartPercentAxisLabel(ddBounds.low * n / 2), color = Muted, fontSize = 9.sp) }
+                        }
+                    }
+                    Text("Below running peak · same period and source as equity", color = Muted, fontSize = 10.sp)
+                }
+            }
+            if (samples.size > 1) Row(Modifier.fillMaxWidth().padding(end = axisWidth + 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(sampleDate(samples.first().timestamp, true), fontSize = 10.sp, color = Muted)
                 Text(sampleDate(samples.last().timestamp, true), fontSize = 10.sp, color = Muted)
             }
             if (live != null && recorded.isNotEmpty()) Text("Dashed segment: last close → snapshot estimate",
                 color = Muted, fontSize = 10.sp)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Tap or drag to inspect", color = Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                Text(if (equity && drawdownSeries != null) "Tap or drag either chart" else "Tap or drag to inspect",
+                    color = Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
                 Text("${index + 1} / ${samples.size}", fontSize = 10.sp, color = Muted)
                 IconButton(onClick = { selection = index - 1 }, enabled = index > 0, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Outlined.ChevronLeft, "Previous chart point", Modifier.size(18.dp))

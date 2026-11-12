@@ -26,8 +26,8 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // Replace this list with the changes included in each release. The installed
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
-    ChangelogChange(ChangelogCategory.BugFixes,
-        "Candles, MACD and entry markers stay visible when panned into the right-side gap, all the way to the price axis. Touch inspection and automatic scales use the same full plot area in portrait and landscape."),
+    ChangelogChange(ChangelogCategory.NewFeatures,
+        "A red percentage drawdown chart sits directly below Equity and Recorded equity. Tap or drag either pane, or use previous/next, to inspect the same point on both charts. Drawdown follows the displayed equity's source, period and snapshot estimate."),
 )
 
 @Composable

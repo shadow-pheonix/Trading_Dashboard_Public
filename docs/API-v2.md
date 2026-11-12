@@ -412,6 +412,19 @@ The last closed point retains its actual close timestamp. A dashed estimate
 connects it to the captured point at the snapshot timestamp across the elapsed
 time axis; no synthetic close is appended at now and no open-P&L history is inferred.
 
+Both equity views place a red, filled drawdown pane directly below equity,
+with zero at the top and negative percentages below. It uses the same samples,
+timestamps, source, period and selected models: `(equity / runningPeak - 1) * 100`.
+Calculate from equity levels before converting equity to displayed percentage
+growth. Reference equity includes its untouched base in the peak; recorded equity
+uses its first recorded sample as a positive baseline. Nonpositive baselines or negative
+equity make drawdown unavailable. A zero equity value below a positive peak is
+-100%. A captured open estimate remains a separate point connected by a dashed
+segment on both panes.
+One selection and the same horizontal geometry link tap, drag and previous/next
+inspection across both panes. This filtered chart is independent of the lifetime
+real closed-trade cards; no API fields or additional data requests are needed.
+
 `normalizedEquity.drawdown` keeps its legacy contract for older clients: the
 largest percentage drop below the running peak and the independent largest
 reference-dollar drop, calculated before timestamp coalescing. They may occur at

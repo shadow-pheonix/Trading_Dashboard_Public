@@ -39,6 +39,29 @@ def complete_sum(values):
     return sum(values) if all(value is not None for value in values) else None
 
 
+def entry_margin(trade, account, opened, samples, now):
+    if opened is None:
+        return None
+    recorded = positive_optional(trade.get('entry_margin_usd'))
+    if recorded is not None:
+        return recorded
+    try:
+        sample = samples['accounts'][account.id]
+        if sample['status'] != 'ok' or not opened <= samples['attemptedAt'] <= sample['sampledAt'] <= now:
+            return None
+        position = sample['positions'][account.symbol.removesuffix('USDT')]
+        size, entry = number(position['size']), number(position['entryPrice'])
+        expected_size = number(trade['sz']) * (1 if trade['side'] == 'LONG' else -1)
+        expected_entry = number(trade['entry_price'])
+        # Never borrow margin from a stale, reversed, trimmed or different entry.
+        if (abs(size - expected_size) > max(1e-9, abs(expected_size) * 1e-8)
+                or abs(entry - expected_entry) > max(0.01, expected_entry * 1e-8)):
+            return None
+        return positive_optional(position['entryMargin'])
+    except (InvalidData, KeyError, TypeError):
+        return None
+
+
 def open_performance(pnl, capital, uses_idle=False, idle_sampled_at=None):
     invested, equity = capital
     return {"investedUsd": invested, "entryEquityUsd": equity,
@@ -350,8 +373,10 @@ class BotFiles:
                             invested_capital = positive_optional(notional / leverage) if notional is not None and leverage is not None else None
                             # Saved bot leverage is exposure/account equity, not the
                             # exchange leverage or cash margin committed at entry.
-                            # Only explicit original margin telemetry is trustworthy.
-                            invested.append(positive_optional(trade.get('entry_margin_usd')) if opened is not None else None)
+                            # Prefer an original cash snapshot; otherwise use matched
+                            # HL entry notional / actual venue leverage from the
+                            # existing read-only account request, including legacy trades.
+                            invested.append(entry_margin(trade, account, opened, idle_balances, now))
                         positions.append({"id": hashlib.sha256((account.id + ":" + str(opened)).encode()).hexdigest()[:24],
                             "accountId": account.id, "symbol": account.symbol, "side": trade["side"],
                             "size": size, "entryPrice": entry, "markPrice": mark, "unrealizedPnl": pnl,

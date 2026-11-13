@@ -303,21 +303,29 @@ The phone retains the newest validated ticker through empty snapshots and caches
 public price/change/timestamp for up to one day, writing at most every 15 seconds.
 Cached/offline quotes show Last price until the connection and 15-second freshness
 checks pass; this cache never changes portfolio or Analytics snapshots.
-Mark prices still calculate open P&L. No idle collection or balance polling is added.
+Mark prices still calculate open P&L; account refreshes follow the demand rules below.
 
 `openPerformance` has four nullable numeric fields: `investedUsd`,
 `entryEquityUsd`, `investedReturnPct`, and `entryEquityReturnPct`.
 Optional `usesIdleBalances` and `idleBalanceSampledAt` identify a mixed capital
 basis and the oldest included idle sample; old servers omit these fields.
 `investedBasis="entry_margin"` identifies the corrected margin contract. Invested
-USD is the sum of positive saved `entry_margin_usd` for active wallets with known
-entry times, before merging A/B positions. It is actual cash margin recorded at
-entry. Saved bot `leverage` is account exposure, so neither `pos_size_quote /
-leverage`, position notional nor entry account equity can substitute for margin.
-Opposing positions add margin separately; one missing/invalid leg makes the whole
-denominator unavailable. Existing bot records do not export this margin field;
-their historical amount is unavailable, not reconstructed from current exchange
-settings. This dashboard change does not add bot telemetry or margin collection.
+USD sums each active wallet's entry-margin basis before merging A/B positions.
+A positive saved `entry_margin_usd` takes precedence. Otherwise the existing
+read-only Hyperliquid account request supplies `abs(szi) * entryPx / leverage.value`.
+This matches HL's entry-notional ROE denominator and works at zero P&L, where
+dividing `unrealizedPnl / returnOnEquity` would be undefined. The venue leverage
+must be a valid cross/isolated integer setting. It is distinct from the bot's
+saved effective account-exposure leverage. Current `marginUsed` is not substituted:
+it can change with mark price and isolated collateral/P&L. Existing trades can
+therefore display returns without bot changes. This live entry basis follows the
+current exchange leverage; it does not claim to recover a historical leverage
+setting after a manual change. No bot state is written.
+
+The exchange sample must start after entry and match symbol, side, size and entry
+price. Opposing positions add margin separately; a missing/invalid/mismatched leg
+makes the denominator unavailable. Addresses and per-wallet position samples stay
+server-private. The combined percentage remains combined marked P&L / summed margin.
 New clients hide older servers' unverified invested percentages when the basis
 marker is absent. The marker is optional for API compatibility and has no other
 accepted value. Combined trade-stat leverage keeps its existing separate basis.
@@ -341,9 +349,9 @@ closing after the sample therefore needs manual refresh or instance reopening.
 Missing/failed idle samples or missing active entry capital make the whole
 denominator unavailable. A later failed idle request replaces the earlier
 sample rather than silently reusing it. A failed current query for an active
-wallet does not invalidate its saved entry capital. Streams only read existing
-samples, even after the ten-second request-sharing cache expires; no balance
-queries or polling are added. Balance cards retain explicit stale/failure labels.
+wallet does not invalidate its saved entry capital. Foreground clients can refresh
+the shared samples as described under [demand-only balances](#demand-only-perpetual-balances).
+Balance cards retain explicit stale/failure labels.
 The app shows the displayed snapshot's update time once beside Read-only portfolio;
 sample timestamps remain in the API, independently of live prices.
 
@@ -414,7 +422,8 @@ captured point including active P&L. Raw P&L adds captured saved-position P&L
 from Binance marks once. Reference equity applies the current open return
 using saved active entry capital plus sampled flat-account idle capital.
 This follows the monitor's compounding convention while avoiding its exchange
-queries: no bot imports, bot environment access or new balance polling.
+queries: no bot imports or bot environment access. Shared account samples follow
+the foreground demand rules below.
 Marks already stale at capture or missing capital make that open point unavailable;
 historical open P&L is not invented. Backtest never receives real positions.
 Recorded equity remains a separate view available only for actual samples.
@@ -504,9 +513,14 @@ logs or source. Setup and service changes are [human-run](UPDATE.md).
 Main sums six configured accounts; Vinay and Madhu each sum three. HTTP calls
 share one in-flight fetch per instance. Results completed less than ten seconds
 ago are reused, including failures. A cancelled viewer cannot cancel a shared
-fetch. Balance fetching has no timer: the Android app requests it only when
-opening/selecting/resuming an instance or on manual refresh. Stream updates,
-reconnection retries and Analytics/Trades filters make no balance requests.
+fetch. Balance fetching has no independent timer. Opening/selecting/resuming an
+instance or manual refresh still requests the balance cards. Real foreground
+dashboard HTTP/live requests additionally send `X-Dashboard-Margin: 1`, reusing
+the same fetch/cache for margin inputs. Live frames keep them fresh at most once
+per ten seconds per instance, including shared viewers and failure caching.
+Legacy clients without this header only reuse explicit balance samples. Chart,
+Backtest and alert/background feeds never activate this refresh, even if the
+header is supplied. Authentication is rechecked after the account request.
 
 The response contains `schemaVersion=2`, `instance`, `generatedAt`, `attemptedAt`,
 `sampledAt`, `status`, `equity`, and `models` (M1, M2, M3, each with `id`, `equity`,

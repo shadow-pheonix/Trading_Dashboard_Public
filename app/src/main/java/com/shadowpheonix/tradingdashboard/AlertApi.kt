@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 fun alertRequest(connection: Connection, after: Long): Request {
     require(after >= 0)
     val request = dashboardRequest(connection, "All", "all")
-    return request.newBuilder().header("X-Dashboard-Pnl", "1").url(request.url.newBuilder().encodedPath("/v2/alerts/live")
+    return request.newBuilder().removeHeader("X-Dashboard-Margin").header("X-Dashboard-Pnl", "1").url(request.url.newBuilder().encodedPath("/v2/alerts/live")
         .query(null).addQueryParameter("after", after.toString()).build()).build()
 }
 

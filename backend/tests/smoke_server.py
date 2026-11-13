@@ -74,7 +74,9 @@ class SyntheticIndicators:
 if __name__ == '__main__':
     config, database, port = sys.argv[1:]
     uvicorn.run(Application(load_config(config), Store(database), prices=SyntheticPrices(),
-        balances=SyntheticBalances(query=lambda _: 100.0), indicators=SyntheticIndicators()),
+        balances=SyntheticBalances(query=lambda address: {'equity': 100.0, 'positions': {
+            'BTC': {'size': 2.0, 'entryPrice': 100.0, 'entryMargin': 40.0}}
+            if address.endswith('1') else {}}), indicators=SyntheticIndicators()),
         host='127.0.0.1', port=int(port), access_log=False, log_level='critical',
         proxy_headers=False, limit_concurrency=32, ws='websockets-sansio',
         ws_max_size=1024, ws_max_queue=1, ws_per_message_deflate=False, **WS_KEEPALIVE)

@@ -27,7 +27,7 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
     ChangelogChange(ChangelogCategory.BugFixes,
-        "Open P&L returns distinguish actual entry margin from full wallet capital at entry, with the dollar basis shown under each percentage. Missing entry amounts stay unavailable instead of using account equity or current idle balances as substitutes."),
+        "Entry-margin returns now work for existing open trades using entry position value and Hyperliquid’s exchange leverage. Wallet A/B margins are combined separately from full entry capital. Read-only margin refreshes continue while the dashboard is open."),
 )
 
 @Composable

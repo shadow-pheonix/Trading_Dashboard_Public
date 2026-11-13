@@ -138,7 +138,8 @@ YTD and reference equity. Older backends leave the new cards unavailable.
 Verify YTD excludes prior-year closes after pairing and starts at January 1 on
 the $10k reference scale. Real money must use regular trade CSVs, and Backtest
 must keep its edge history. Both chart views include an open-P&L point captured
-with fresh marks and sufficient capital. This adds no balance polling or bot changes.
+with fresh marks and sufficient capital. Account demand follows the
+[margin refresh contract](API-v2.md#demand-only-perpetual-balances); no bot changes are needed.
 
 Install the released APK as an update, retaining its data. Confirm that existing
 saved keys connect with their original stored addresses, the form is hidden, and
@@ -152,8 +153,9 @@ each instance, the single update time beside Read-only portfolio, and that faile
 explicitly stale. Compare balances privately with current perpetual account
 equity for the configured addresses.
 
-Check that invested return uses the sum of each active wallet's saved notional
-divided by its leverage. All-wallet capital combines active wallets' saved entry
+Check that invested return uses recorded entry margin, or matched Hyperliquid
+entry notional divided by its actual exchange leverage, rather than the bot's
+effective exposure leverage. All-wallet capital combines active wallets' saved entry
 equity and flat wallets' sampled current equity. Confirm sample timestamps privately in the API;
 refresh after a newly closed trade. Missing entry capital or a failed idle
 sample must leave the percentage unavailable. BTC price should match the P&L
@@ -273,13 +275,15 @@ the last close and current snapshot must occupy their own time positions, with
 the elapsed time visible horizontally. Test the Fingerprint unlock switch across
 closing/reopening: disabled opens directly; enabled requires Android authentication
 after closing, while tabs/background/resume preserve an unlocked session.
-Check Home's entry-margin and entry-capital returns with recorded margin $2,000
-and saved wallet equity $5,000: $1,000 P&L must show 50% and 20%, respectively,
-with those dollar bases. Missing margin, an older server without its verified
+Check Home's entry-margin and entry-capital returns with a $10,000 HL entry at
+5x exchange leverage and saved wallet equity $5,000: $1,000 P&L must show 50%
+and 20%, with $2,000/$5,000 dollar bases even without a saved margin field.
+Zero P&L must show 0% with the same $2,000 basis; opposing A/B margins must add.
+An unavailable/mismatched HL sample, an older server without its verified
 margin basis, or current idle cash must not appear as original entry amounts.
 Confirm combined-size leverage and Analytics snapshot estimates retain their
-existing calculations. Current bot records lack original margin telemetry, so
-their margin percentage must remain unavailable; this update does not collect it.
+existing calculations. Foreground streams must refresh the existing account
+request at most once per ten seconds; charts, Backtest and alert streams must not.
 Confirm background/close releases it and
 resuming reconnects once. Check monthly P&L's neutral tiles and colored text in
 Dark mode. Retain an older APK to check v1 login and streaming.

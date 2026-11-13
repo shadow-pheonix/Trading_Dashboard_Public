@@ -48,6 +48,7 @@ fun dashboardRequest(connection: Connection, period: String, account: String, mo
         .build()
     return Request.Builder().url(url).get()
         .header("Authorization", "Bearer ${connection.accessKey}")
+        .apply { if (mode == "real") header("X-Dashboard-Margin", "1") }
         .header("Accept", "application/json").tag(DiagnosticScope::class.java, diagnosticScope(connection.id)).build()
 }
 
@@ -292,10 +293,10 @@ fun validateSnapshot(snapshot: DashboardSnapshot, period: String, account: Strin
 class DashboardError(message: String) : IOException(message)
 
 fun balanceRequest(connection: Connection): Request = dashboardRequest(connection, "All", "all")
-    .newBuilder().url(validatedBaseUrl(connection.baseUrl).newBuilder().encodedPath("/v2/balances").build()).build()
+    .newBuilder().removeHeader("X-Dashboard-Margin").url(validatedBaseUrl(connection.baseUrl).newBuilder().encodedPath("/v2/balances").build()).build()
 
 fun macdRequest(connection: Connection): Request = dashboardRequest(connection, "All", "all")
-    .let { it.newBuilder().url(it.url.newBuilder().query(null).addQueryParameter("view", "macd").build()).build() }
+    .let { it.newBuilder().removeHeader("X-Dashboard-Margin").url(it.url.newBuilder().query(null).addQueryParameter("view", "macd").build()).build() }
 
 fun chartRequest(connection: Connection): Request = macdRequest(connection).let {
     it.newBuilder().url(it.url.newBuilder().setQueryParameter("view", "chart").build()).build()

@@ -1,4 +1,4 @@
-"""Demand-only perpetual equity, no signing keys, trading SDK or background collector."""
+"""Demand-only perpetual equity/margin, no signing keys or trading SDK."""
 import asyncio
 import time
 import urllib.request
@@ -13,7 +13,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise InvalidData()
 
 
-def query_equity(address):
+def query_account(address):
     request = urllib.request.Request('https://api.hyperliquid.xyz/info',
         data=encode({'type': 'clearinghouseState', 'user': address}),
         headers={'Content-Type': 'application/json'}, method='POST')
@@ -23,11 +23,43 @@ def query_equity(address):
         raise InvalidData()
     value = decode(raw)
     # marginSummary.accountValue is current perpetual account equity, including open P&L.
-    return decimal(value['marginSummary']['accountValue'])
+    equity = decimal(value['marginSummary']['accountValue'])
+    positions = {}
+    try:
+        raw_positions = value.get('assetPositions', [])
+        if not isinstance(raw_positions, list) or len(raw_positions) > 100:
+            raise InvalidData()
+        for item in raw_positions:
+            position = item['position']
+            coin = position['coin']
+            size = decimal(position['szi'])
+            if size == 0:
+                continue
+            entry = decimal(position['entryPx'])
+            leverage = position['leverage']
+            # HL ROE uses entry notional / venue leverage, not the bot's
+            # exposure/account-equity ratio. Unlike P&L/ROE, this works at zero P&L.
+            venue_leverage = number(leverage['value'])
+            if (not isinstance(coin, str) or not 1 <= len(coin) <= 32 or coin in positions
+                    or entry <= 0 or leverage['type'] not in ('cross', 'isolated')
+                    or not 1 <= venue_leverage <= 100 or venue_leverage != int(venue_leverage)):
+                raise InvalidData()
+            margin = number(abs(size) * entry / venue_leverage)
+            if margin <= 0:
+                raise InvalidData()
+            positions[coin] = {'size': size, 'entryPrice': entry, 'entryMargin': margin}
+    except (InvalidData, KeyError, TypeError, ValueError):
+        positions = {}  # Bad optional position telemetry must not hide account equity.
+    return {'equity': equity, 'positions': positions}
+
+
+def query_equity(address):
+    """Compatibility wrapper; the canonical request also collects margin inputs."""
+    return query_account(address)['equity']
 
 
 class Balances:
-    def __init__(self, query=query_equity, clock=lambda: int(time.time() * 1000), monotonic=time.monotonic):
+    def __init__(self, query=query_account, clock=lambda: int(time.time() * 1000), monotonic=time.monotonic):
         self.query, self.clock, self.monotonic = query, clock, monotonic
         self.samples, self.tasks = {}, {}
         self.wallet_samples = {}
@@ -49,12 +81,14 @@ class Balances:
 
     async def _account(self, account):
         if not account.public_address:
-            return None, 'unconfigured', None
+            return None, 'unconfigured', None, {}
         try:
-            equity = await asyncio.to_thread(self.query, account.public_address)
-            return number(equity), 'ok', self.clock()
+            sample = await asyncio.to_thread(self.query, account.public_address)
+            equity = sample['equity'] if isinstance(sample, dict) else sample
+            positions = sample['positions'] if isinstance(sample, dict) else {}
+            return number(equity), 'ok', self.clock(), positions
         except Exception:
-            return None, 'failed', None  # Never expose exception/provider/address payloads.
+            return None, 'failed', None, {}  # Never expose exception/provider/address payloads.
 
     async def _fetch(self, instance):
         try:
@@ -96,7 +130,7 @@ class Balances:
             encode(body)
             self.wallet_samples[instance.id] = {
                 'attemptedAt': attempted,
-                'accounts': {a.id: {'equity': s[0], 'status': s[1], 'sampledAt': s[2]}
+                'accounts': {a.id: {'equity': s[0], 'status': s[1], 'sampledAt': s[2], 'positions': s[3]}
                              for a, s in zip(instance.accounts, samples)}}
             # Failures are also briefly reused to prevent an outage causing a request storm.
             self.samples[instance.id] = self.monotonic(), body

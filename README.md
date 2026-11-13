@@ -16,11 +16,10 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   badge. Active trades and Account balances follow. The BTC dot tracks
   consecutive price moves (green up, red down), retaining its color on equal
   quotes and appearing neutral before comparison or when stale/offline.
-  The bracketed change is over 24 hours. Open P&L separates recorded entry margin
-  from full wallet capital at entry and shows each dollar basis. Account exposure
-  leverage and current idle cash cannot supply missing original entry amounts.
-  Legacy records without entry margin remain
-  unavailable. See the [calculation contract](docs/API-v2.md#live-btc-and-open-returns).
+  The bracketed change is over 24 hours. Open P&L separates entry margin from full
+  wallet capital at entry and shows each dollar basis. Existing trades use matched
+  Hyperliquid entry value / exchange leverage when no margin snapshot was saved.
+  See the [calculation contract](docs/API-v2.md#live-btc-and-open-returns).
 - M1/M2/M3 combine Wallet A/B while keeping opposing directions visible;
   combined USD size shows leverage using the [Telegram trade-stats calculation](docs/API-v2.md#endpoints-and-model-projection), such as `$38,500.52 (4.0x)`.
 - Account balances adds each model's share within its wallet beside the dollar
@@ -74,7 +73,8 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   instance changes and foreground resume reload it. Home and Trades keep their
   live updates. See the [snapshot policy](docs/API-v2.md#edge-monitor-equity-and-chart-inspection).
   Backgrounding/closing disconnects the session, and resuming reconnects.
-  Perpetual equity stays demand-only on opening/resume/manual refresh.
+  Foreground real dashboard requests share read-only Hyperliquid equity/margin
+  refreshes, cached for ten seconds. Charts, Backtest and background alerts do not poll accounts.
 - Monthly results use neutral tiles with mint/rose text and a small accent bar,
   including Dark mode, rather than filled profit/loss blocks.
 - HTTPS/WSS header authentication, blocked redirects and encrypted local keys.

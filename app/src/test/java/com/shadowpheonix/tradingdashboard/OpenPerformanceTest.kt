@@ -5,6 +5,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OpenPerformanceTest {
+    @Test fun onlyForegroundRealDashboardRequestsRefreshVenueMargin() {
+        val connection = Connection("test", "Test", "https://example.invalid", "a".repeat(32))
+        assertEquals("1", dashboardRequest(connection, "All", "all").header("X-Dashboard-Margin"))
+        assertEquals("1", dashboardStreamRequest(connection, "All", "all").header("X-Dashboard-Margin"))
+        assertNull(dashboardRequest(connection, "All", "all", "edge").header("X-Dashboard-Margin"))
+        assertNull(dashboardStreamRequest(connection, "All", "all", "edge").header("X-Dashboard-Margin"))
+        assertNull(balanceRequest(connection).header("X-Dashboard-Margin"))
+        assertNull(macdRequest(connection).header("X-Dashboard-Margin"))
+        assertNull(alertRequest(connection, 0).header("X-Dashboard-Margin"))
+    }
+
     private val time = 100_000L
     private fun snapshot(pnl: Double? = 60.0) = DashboardSnapshot(
         instance = "Main", generatedAt = time, live = true, period = "All",

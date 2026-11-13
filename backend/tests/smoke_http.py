@@ -35,7 +35,7 @@ def main():
         edge.chmod(0o400)
         state.write_text(json.dumps({'trade': {'side': 'LONG', 'sz': 2, 'entry_price': 100,
             'entry_time': datetime.fromtimestamp(time.time() - 3600, timezone.utc).isoformat(), 'leverage': 3, 'sl': 90,
-            'status': 'ACTIVE', 'entry_capital': 1000, 'entry_margin_usd': 40}}))
+            'status': 'ACTIVE', 'entry_capital': 1000}}))
         idle_state.write_text(json.dumps({'trade': None}))
         idle_state.chmod(0o400)
         history.write_text('trade_num,side,entry_time,exit_time,entry_price,exit_price,pnl_usd,total_fees\n')
@@ -67,9 +67,10 @@ def main():
             str(store.path), str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             base = f'http://127.0.0.1:{port}'
-            def call(path, auth=True, method='GET'):
+            def call(path, auth=True, method='GET', margin=False):
                 request = urllib.request.Request(base + path, method=method,
-                    headers={'Authorization': 'Bearer ' + token} if auth else {})
+                    headers=({'Authorization': 'Bearer ' + token} if auth else {}) |
+                            ({'X-Dashboard-Margin': '1'} if margin else {}))
                 try:
                     with urllib.request.urlopen(request, timeout=5) as response:
                         return response.status, json.load(response)
@@ -148,7 +149,7 @@ def main():
                          proxy=None, open_timeout=3, additional_headers={'Authorization': 'Bearer ' + token}) as stream:
                 streamed = json.loads(stream.recv(timeout=5))
                 assert streamed['historyMode'] == 'edge' and streamed['metrics']['realizedPnl'] == 5
-            status, body = call('/v2/dashboard?period=All&model=M1')
+            status, body = call('/v2/dashboard?period=All&model=M1', margin=True)
             assert status == 200 and body['schemaVersion'] == 2 and body['selectedModel'] == 'M1'
             assert body['positions'][0]['accountId'] == 'M1' and body['metrics']['unrealizedPnl'] == 20
             assert body['positions'][0]['stopPrice'] == 90 and body['strategies'][0]['signal'] == 'LONG'
@@ -156,7 +157,8 @@ def main():
             assert body['openPerformance']['investedBasis'] == 'entry_margin'
             assert body['openPerformance']['investedUsd'] == 40
             assert body['openPerformance']['investedReturnPct'] == 50
-            assert body['openPerformance']['entryEquityReturnPct'] is None
+            assert body['openPerformance']['entryEquityUsd'] == 1100
+            assert abs(body['openPerformance']['entryEquityReturnPct'] - 20 / 1100 * 100) < 1e-9
             assert body['normalizedEquity'] is None
             status, ytd = call('/v2/dashboard?period=YTD&model=all')
             assert status == 200 and ytd['period'] == 'YTD'

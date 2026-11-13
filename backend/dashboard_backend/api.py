@@ -13,6 +13,11 @@ from .indicators import Indicators, chart_time, LIVE_CHART_QUERY
 from .grouping import MODELS
 
 
+def margin_requested(scope):
+    # Explicit foreground dashboard demand only; never chart/history/alert feeds.
+    return [v for k, v in scope.get('headers', []) if k.lower() == b'x-dashboard-margin'] == [b'1']
+
+
 class Limits:
     """Single-worker, bounded sliding windows. Forwarded IP headers are untrusted."""
     def __init__(self, clock=time.monotonic):
@@ -153,6 +158,10 @@ class Application:
         if symbols:
             await self.subscribe(symbols)
         try:
+            if version == 2 and mode == 'real' and margin_requested(scope):
+                await self.balances.get(instance)
+                if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
+                    return 401, {"error": "Access denied."}
             if symbols:
                 await asyncio.to_thread(self.prices.wait_ready, symbols)
             args = (instance, period, account, self.prices, self.clock(), mode)
@@ -266,6 +275,13 @@ class Application:
                 if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
                     await send({"type": "websocket.close", "code": 1008})
                     return
+                if version == 2 and mode == 'real' and not alerts and margin_requested(scope):
+                    await self.balances.get(instance)
+                    if receiver.done():
+                        return
+                    if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
+                        await send({"type": "websocket.close", "code": 1008})
+                        return
                 args = (instance, period, account, self.prices, self.clock(), mode)
                 options = {"version": 2, "idle_balances": self.balances.peek(instance), "clock": self.clock} if version == 2 else {}
                 value = (await asyncio.to_thread(self.alerts.read, instance, self.clock(), cursor) if alerts

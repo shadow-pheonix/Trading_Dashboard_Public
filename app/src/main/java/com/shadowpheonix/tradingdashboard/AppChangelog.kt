@@ -26,8 +26,8 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // Replace this list with the changes included in each release. The installed
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
-    ChangelogChange(ChangelogCategory.NewFeatures,
-        "A red percentage drawdown chart sits directly below Equity and Recorded equity. Tap or drag either pane, or use previous/next, to inspect the same point on both charts. Drawdown follows the displayed equity's source, period and snapshot estimate."),
+    ChangelogChange(ChangelogCategory.BugFixes,
+        "Open P&L returns distinguish actual entry margin from full wallet capital at entry, with the dollar basis shown under each percentage. Missing entry amounts stay unavailable instead of using account equity or current idle balances as substitutes."),
 )
 
 @Composable

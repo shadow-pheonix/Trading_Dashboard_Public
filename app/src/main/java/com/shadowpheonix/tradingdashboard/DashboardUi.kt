@@ -831,14 +831,14 @@ internal fun PortfolioOverviewCard(state: DashboardState) {
                     Text(money(pnl, true, snapshot?.currency ?: "USD"), style = Numeric, fontSize = numberSize,
                         fontWeight = FontWeight.Bold, color = tone(pnl))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        val returns = listOf("On invested USD" to snapshot?.openPerformance?.investedReturnPct,
-                            "On all-wallet capital" to snapshot?.openPerformance?.entryEquityReturnPct)
-                        returns.forEachIndexed { index, (label, value) ->
-                            if (index > 0) VerticalDivider(Modifier.height(42.dp), color = Line.copy(alpha = 0.6f))
+                        val returns = entryReturns(snapshot?.openPerformance)
+                        returns.forEachIndexed { index, item ->
+                            if (index > 0) VerticalDivider(Modifier.height(58.dp), color = Line.copy(alpha = 0.6f))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(percent(value), style = Numeric, fontSize = (numberSize.value / 2).sp,
-                                    fontWeight = FontWeight.SemiBold, color = tone(value))
-                                Text(label, color = Muted, fontSize = 11.sp)
+                                Text(percent(item.percentage), style = Numeric, fontSize = (numberSize.value / 2).sp,
+                                    fontWeight = FontWeight.SemiBold, color = tone(item.percentage))
+                                Text(item.label, color = Muted, fontSize = 11.sp)
+                                Text(item.usd?.let { money(it) } ?: "Entry amount unavailable", color = Muted, fontSize = 10.sp)
                             }
                         }
                     }

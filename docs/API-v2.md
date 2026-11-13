@@ -309,19 +309,31 @@ Mark prices still calculate open P&L. No idle collection or balance polling is a
 `entryEquityUsd`, `investedReturnPct`, and `entryEquityReturnPct`.
 Optional `usesIdleBalances` and `idleBalanceSampledAt` identify a mixed capital
 basis and the oldest included idle sample; old servers omit these fields.
-Invested USD is the sum of saved `pos_size_quote / leverage` for active wallets
-within the selected model scope, calculated before merging A/B positions. If
-saved notional is absent, known saved size times entry price supplies notional.
-Opposing positions add capital separately. Missing or invalid required capital
-makes that denominator unavailable; no leveraged notional is used as investment.
+`investedBasis="entry_margin"` identifies the corrected margin contract. Invested
+USD is the sum of positive saved `entry_margin_usd` for active wallets with known
+entry times, before merging A/B positions. It is actual cash margin recorded at
+entry. Saved bot `leverage` is account exposure, so neither `pos_size_quote /
+leverage`, position notional nor entry account equity can substitute for margin.
+Opposing positions add margin separately; one missing/invalid leg makes the whole
+denominator unavailable. Existing bot records do not export this margin field;
+their historical amount is unavailable, not reconstructed from current exchange
+settings. This dashboard change does not add bot telemetry or margin collection.
+New clients hide older servers' unverified invested percentages when the basis
+marker is absent. The marker is optional for API compatibility and has no other
+accepted value. Combined trade-stat leverage keeps its existing separate basis.
 
-The all-wallet capital denominator includes every configured wallet in the
+The legacy all-wallet capital denominator includes every configured wallet in the
 instance, regardless of the selected model. Active wallets use positive saved
 `entry_capital` with a known entry time, retained in trade state until closing.
 Flat wallets use their latest successful current perpetual equity sample from
 the existing demand-only balance request. Zero idle equity is valid. Per-wallet
 samples stay private; model totals cannot identify which wallet is active.
 An active wallet's current equity never replaces missing entry capital.
+Home labels its second percentage "On entry capital" and displays it only when
+`usesIdleBalances=false`, so current flat-wallet cash is never presented as money
+recorded at entry. Both Home percentages show their dollar denominator, or an
+explicit unavailable entry amount. The existing mixed-capital API fields remain
+unchanged for Analytics snapshot compounding and older clients.
 
 A flat wallet's balance fetch must begin at or after its saved flat state was
 written; an older sample could contain its previous position's open P&L. A trade

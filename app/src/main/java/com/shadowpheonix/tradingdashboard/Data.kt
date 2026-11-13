@@ -69,7 +69,8 @@ data class BtcTicker(val symbol: String, val price: Double, val change24hPct: Do
 @Serializable
 data class OpenPerformance(val investedUsd: Double?, val entryEquityUsd: Double?,
     val investedReturnPct: Double?, val entryEquityReturnPct: Double?,
-    val usesIdleBalances: Boolean = false, val idleBalanceSampledAt: Long? = null)
+    val usesIdleBalances: Boolean = false, val idleBalanceSampledAt: Long? = null,
+    val investedBasis: String? = null)
 
 fun isBtcFresh(snapshot: DashboardSnapshot, now: Long): Boolean = snapshot.historyMode == "real" &&
     btcTickerIsFresh(snapshot.btcTicker, now)

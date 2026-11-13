@@ -11,6 +11,38 @@ class OpenPerformanceTest {
         accounts = listOf(Account("M1", "M1"), Account("M2", "M2"), Account("M3", "M3")),
         metrics = Metrics(unrealizedPnl = pnl), dataSource = "bot_files_binance", priceUpdatedAt = time)
 
+    @Test fun actualMarginAndFullEntryCapitalHaveDifferentCashBases() {
+        for (pnl in listOf(1000.0, -1000.0, 0.0)) {
+            val performance = OpenPerformance(2000.0, 5000.0, pnl/2000*100, pnl/5000*100, investedBasis = "entry_margin")
+            val value = snapshot(pnl).copy(openPerformance = performance)
+            validateSnapshot(value, "All", "all")
+            val returns = entryReturns(performance)
+            assertEquals(2000.0, returns[0].usd!!, 0.0)
+            assertEquals(pnl/2000*100, returns[0].percentage!!, 0.0)
+            assertEquals(5000.0, returns[1].usd!!, 0.0)
+            assertEquals(pnl/5000*100, returns[1].percentage!!, 0.0)
+            assertEquals(performance, dashboardJson.decodeFromString<DashboardSnapshot>(dashboardJson.encodeToString(value)).openPerformance)
+        }
+    }
+
+    @Test fun oldIncorrectInvestmentBasisAndCurrentIdleCashAreNotShownAsEntryAmounts() {
+        val legacy = OpenPerformance(5000.0, 5000.0, 20.0, 20.0)
+        assertNull(entryReturns(legacy)[0].percentage)
+        assertNull(entryReturns(legacy)[0].usd)
+        assertEquals(20.0, entryReturns(legacy)[1].percentage!!, 0.0)
+        val idle = legacy.copy(usesIdleBalances = true, idleBalanceSampledAt = time, investedBasis = "entry_margin")
+        assertNull(entryReturns(idle)[1].percentage)
+        assertNull(entryReturns(idle)[1].usd)
+        assertTrue(entryReturns(null).all { it.percentage == null && it.usd == null })
+        // Existing Analytics snapshot compounding still receives its labelled mixed basis.
+        assertEquals(20.0, idle.entryEquityReturnPct!!, 0.0)
+    }
+
+    @Test fun unknownMarginBasisIsRejected() {
+        val bad = snapshot().copy(openPerformance = OpenPerformance(1000.0, 3000.0, 6.0, 2.0, investedBasis = "effective_leverage"))
+        assertThrows(DashboardError::class.java) { validateSnapshot(bad, "All", "all") }
+    }
+
     @Test fun olderV2SnapshotsLeaveNewFieldsUnavailable() {
         val original = snapshot()
         val json = dashboardJson.encodeToString(original)

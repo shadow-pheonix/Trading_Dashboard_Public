@@ -41,6 +41,17 @@ data class ChartSeries(val recorded: List<ChartSample>, val captured: ChartSampl
 
 val defaultAnalyticsChart = ChartView.NormalizedEquity
 
+data class EntryReturn(val label: String, val percentage: Double?, val usd: Double?)
+
+// Older servers called effective-leverage capital "invested USD". Do not display
+// that value as actual margin, or current idle cash as historical entry capital.
+fun entryReturns(performance: OpenPerformance?): List<EntryReturn> {
+    val margin = performance?.takeIf { it.investedBasis == "entry_margin" }
+    val capital = performance?.takeIf { !it.usesIdleBalances }
+    return listOf(EntryReturn("On entry margin", margin?.investedReturnPct, margin?.investedUsd),
+        EntryReturn("On entry capital", capital?.entryEquityReturnPct, capital?.entryEquityUsd))
+}
+
 // Keep compounding in equity units; convert both closed and open marks only
 // after calculation. A 10% gain followed by a 10% loss is -1%, not zero.
 fun displayedChartSeries(snapshot: DashboardSnapshot, view: ChartView): ChartSeries {

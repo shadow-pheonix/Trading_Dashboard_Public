@@ -230,12 +230,12 @@ class V2Case(unittest.TestCase):
             self.assertEqual(pnl, body['pnl']); self.assertAlmostEqual(pct, body['returnPct'])
 
     def test_open_returns_sum_capital_before_model_merging_and_require_all_wallets(self):
-        first = dict(self.open_trade(), pos_size_quote=200, leverage=2, entry_capital=1000)
-        second = dict(self.open_trade(), pos_size_quote=200, leverage=10, entry_capital=2000)
+        first = dict(self.open_trade(), pos_size_quote=200, leverage=2, entry_capital=1000, entry_margin_usd=100)
+        second = dict(self.open_trade(), pos_size_quote=200, leverage=10, entry_capital=2000, entry_margin_usd=20)
         self.state(self.accounts[0], first); self.state(self.accounts[1], second)
         body = self.dashboard()[1]
         performance = body['openPerformance']
-        self.assertEqual(120, performance['investedUsd'])  # 200/2 + 200/10, never 400/weighted leverage.
+        self.assertEqual(120, performance['investedUsd'])  # Actual recorded margin100+20, before A/B merging.
         self.assertEqual(3000, performance['entryEquityUsd'])
         self.assertAlmostEqual(40/120*100, performance['investedReturnPct'])
         self.assertAlmostEqual(40/3000*100, performance['entryEquityReturnPct'])
@@ -249,6 +249,55 @@ class V2Case(unittest.TestCase):
         self.assertEqual(100, performance['investedUsd'])
         self.assertEqual(20, performance['investedReturnPct'])
         self.assertIsNone(performance['entryEquityUsd']); self.assertIsNone(performance['entryEquityReturnPct'])
+
+    def test_entry_margin_is_cash_committed_not_effective_leverage_capital(self):
+        self.app.config = Config((replace(self.main, accounts=(self.accounts[0],)),))
+        trade = dict(self.open_trade(), pos_size_quote=10000, leverage=2,
+                     entry_capital=5000, entry_margin_usd=2000)
+        self.state(self.accounts[0], trade)
+        performance = self.dashboard()[1]['openPerformance']
+        self.assertEqual(2000, performance['investedUsd'])
+        self.assertEqual(5000, performance['entryEquityUsd'])
+        self.assertAlmostEqual(20/2000*100, performance['investedReturnPct'])
+        self.assertAlmostEqual(20/5000*100, performance['entryEquityReturnPct'])
+        self.state(self.accounts[0], dict(trade, leverage=4))
+        self.assertEqual(2000, self.dashboard()[1]['openPerformance']['investedUsd'])
+
+    def test_missing_or_invalid_entry_margin_never_falls_back_to_wallet_capital(self):
+        self.app.config = Config((replace(self.main, accounts=(self.accounts[0],)),))
+        original = dict(self.open_trade(), pos_size_quote=10000, leverage=2, entry_capital=5000)
+        for trade in [original] + [dict(original, entry_margin_usd=bad) for bad in (None, 0, -1, True, 'unknown', 1e21)]:
+            self.state(self.accounts[0], trade)
+            performance = self.dashboard()[1]['openPerformance']
+            self.assertEqual('entry_margin', performance['investedBasis'])
+            self.assertIsNone(performance['investedUsd'])
+            self.assertIsNone(performance['investedReturnPct'])
+            self.assertEqual(5000, performance['entryEquityUsd'])
+        self.state(self.accounts[0], dict(original, entry_margin_usd=2000, entry_time='unknown'))
+        self.assertIsNone(self.dashboard()[1]['openPerformance']['investedUsd'])
+
+    def test_actual_entry_margin_sums_both_wallets_and_requires_complete_coverage(self):
+        first = dict(self.open_trade(), entry_capital=5000, entry_margin_usd=2000)
+        second = dict(self.open_trade(), entry_capital=3000, entry_margin_usd=500)
+        self.state(self.accounts[0], first); self.state(self.accounts[1], second)
+        performance = self.dashboard()[1]['openPerformance']
+        self.assertEqual(2500, performance['investedUsd'])
+        self.assertEqual(8000, performance['entryEquityUsd'])
+        self.assertAlmostEqual(40/2500*100, performance['investedReturnPct'])
+        self.state(self.accounts[1], dict(second, entry_margin_usd=None))
+        self.assertIsNone(self.dashboard()[1]['openPerformance']['investedReturnPct'])
+
+    def test_entry_margin_basis_is_allowlisted_and_legacy_snapshots_remain_valid(self):
+        from dashboard_backend.grouping import validate_v2
+        body = self.dashboard()[1]
+        body['schemaVersion'] = 1
+        body['selectedAccount'] = body.pop('selectedModel')  # Validator input precedes the public v2 projection.
+        self.assertEqual('entry_margin', validate_v2(body, 'Main')['openPerformance']['investedBasis'])
+        legacy = dict(body['openPerformance']); legacy.pop('investedBasis')
+        self.assertNotIn('investedBasis', validate_v2(dict(body, openPerformance=legacy), 'Main')['openPerformance'])
+        for bad in ('effective_leverage', 'current_margin', True, []):
+            with self.assertRaises(InvalidData):
+                validate_v2(dict(body, openPerformance=dict(legacy, investedBasis=bad)), 'Main')
 
     def test_open_returns_missing_capital_unknown_entry_flat_and_missing_marks(self):
         first = dict(self.open_trade(), pos_size_quote=200, entry_capital=1000)
@@ -274,8 +323,8 @@ class V2Case(unittest.TestCase):
     def test_open_returns_use_entire_instance_equity_even_for_one_model(self):
         accounts = (self.accounts[0], replace(self.accounts[1], strategy='M2'))
         self.app.config = Config((replace(self.main, accounts=accounts),))
-        self.state(accounts[0], dict(self.open_trade(), entry_capital=1000))
-        self.state(accounts[1], dict(self.open_trade('SHORT'), entry_capital=2000))
+        self.state(accounts[0], dict(self.open_trade(), entry_capital=1000, entry_margin_usd=100))
+        self.state(accounts[1], dict(self.open_trade('SHORT'), entry_capital=2000, entry_margin_usd=100))
         body = self.dashboard('period=All&model=M1')[1]
         self.assertEqual(3000, body['openPerformance']['entryEquityUsd'])
         self.assertAlmostEqual(20/3000*100, body['openPerformance']['entryEquityReturnPct'])

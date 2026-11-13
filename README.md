@@ -16,9 +16,10 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   badge. Active trades and Account balances follow. The BTC dot tracks
   consecutive price moves (green up, red down), retaining its color on equal
   quotes and appearing neutral before comparison or when stale/offline.
-  The bracketed change is over 24 hours. Open P&L includes returns on invested
-  USD before leverage and all-wallet capital: saved entry equity for active
-  wallets plus sampled current equity for flat wallets. Missing values remain
+  The bracketed change is over 24 hours. Open P&L separates recorded entry margin
+  from full wallet capital at entry and shows each dollar basis. Account exposure
+  leverage and current idle cash cannot supply missing original entry amounts.
+  Legacy records without entry margin remain
   unavailable. See the [calculation contract](docs/API-v2.md#live-btc-and-open-returns).
 - M1/M2/M3 combine Wallet A/B while keeping opposing directions visible;
   combined USD size shows leverage using the [Telegram trade-stats calculation](docs/API-v2.md#endpoints-and-model-projection), such as `$38,500.52 (4.0x)`.

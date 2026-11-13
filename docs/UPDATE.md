@@ -273,6 +273,13 @@ the last close and current snapshot must occupy their own time positions, with
 the elapsed time visible horizontally. Test the Fingerprint unlock switch across
 closing/reopening: disabled opens directly; enabled requires Android authentication
 after closing, while tabs/background/resume preserve an unlocked session.
+Check Home's entry-margin and entry-capital returns with recorded margin $2,000
+and saved wallet equity $5,000: $1,000 P&L must show 50% and 20%, respectively,
+with those dollar bases. Missing margin, an older server without its verified
+margin basis, or current idle cash must not appear as original entry amounts.
+Confirm combined-size leverage and Analytics snapshot estimates retain their
+existing calculations. Current bot records lack original margin telemetry, so
+their margin percentage must remain unavailable; this update does not collect it.
 Confirm background/close releases it and
 resuming reconnects once. Check monthly P&L's neutral tiles and colored text in
 Dark mode. Retain an older APK to check v1 login and streaming.

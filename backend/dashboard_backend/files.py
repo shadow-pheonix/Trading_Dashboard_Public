@@ -44,7 +44,8 @@ def open_performance(pnl, capital, uses_idle=False, idle_sampled_at=None):
     return {"investedUsd": invested, "entryEquityUsd": equity,
             "investedReturnPct": pnl / invested * 100 if pnl is not None and invested is not None and invested > 0 else None,
             "entryEquityReturnPct": pnl / equity * 100 if pnl is not None and equity is not None and equity > 0 else None,
-            "usesIdleBalances": uses_idle, "idleBalanceSampledAt": idle_sampled_at if equity is not None else None}
+            "usesIdleBalances": uses_idle, "idleBalanceSampledAt": idle_sampled_at if equity is not None else None,
+            "investedBasis": "entry_margin"}
 
 
 def timestamp(value):
@@ -347,7 +348,10 @@ class BotFiles:
                             notional = positive_optional(trade.get("pos_size_quote", size * entry))
                             leverage = positive_optional(trade.get("leverage"))
                             invested_capital = positive_optional(notional / leverage) if notional is not None and leverage is not None else None
-                            invested.append(invested_capital)
+                            # Saved bot leverage is exposure/account equity, not the
+                            # exchange leverage or cash margin committed at entry.
+                            # Only explicit original margin telemetry is trustworthy.
+                            invested.append(positive_optional(trade.get('entry_margin_usd')) if opened is not None else None)
                         positions.append({"id": hashlib.sha256((account.id + ":" + str(opened)).encode()).hexdigest()[:24],
                             "accountId": account.id, "symbol": account.symbol, "side": trade["side"],
                             "size": size, "entryPrice": entry, "markPrice": mark, "unrealizedPnl": pnl,

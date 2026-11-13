@@ -250,6 +250,8 @@ fun validateSnapshot(snapshot: DashboardSnapshot, period: String, account: Strin
     }
     snapshot.openPerformance?.let { performance ->
         if (mode != "real") throw DashboardError("Unexpected live return data.")
+        if (performance.investedBasis != null && performance.investedBasis != "entry_margin")
+            throw DashboardError("Invalid invested margin basis.")
         val idleTime = performance.idleBalanceSampledAt
         if (idleTime != null && (!performance.usesIdleBalances || idleTime <= 0 || idleTime > snapshot.generatedAt) ||
             performance.usesIdleBalances && performance.entryEquityUsd != null && idleTime == null) {

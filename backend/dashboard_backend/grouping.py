@@ -298,7 +298,10 @@ def validate_v2(value, label):
         raise InvalidData()
     if performance is not None:
         names = ('investedUsd', 'entryEquityUsd', 'investedReturnPct', 'entryEquityReturnPct')
-        fields(performance, names, ('usesIdleBalances', 'idleBalanceSampledAt'))
+        fields(performance, names, ('usesIdleBalances', 'idleBalanceSampledAt', 'investedBasis'))
+        invested_basis = performance.get('investedBasis')
+        if invested_basis not in (None, 'entry_margin'):
+            raise InvalidData()
         uses_idle, idle_time = performance.get('usesIdleBalances', False), performance.get('idleBalanceSampledAt')
         if type(uses_idle) is not bool or (idle_time is not None and
                 (not uses_idle or integer(idle_time, 1) > checked['generatedAt'])):
@@ -307,6 +310,8 @@ def validate_v2(value, label):
         if uses_idle and performance['entryEquityUsd'] is not None and idle_time is None:
             raise InvalidData()
         performance.update(usesIdleBalances=uses_idle, idleBalanceSampledAt=idle_time)
+        if invested_basis is not None:
+            performance['investedBasis'] = invested_basis
         for denominator, percentage in (('investedUsd', 'investedReturnPct'), ('entryEquityUsd', 'entryEquityReturnPct')):
             capital, percentage_value = performance[denominator], performance[percentage]
             if capital is not None and capital < 0:

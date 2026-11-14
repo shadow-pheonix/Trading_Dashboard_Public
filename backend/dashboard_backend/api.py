@@ -67,6 +67,16 @@ class Application:
         self.balances = balances or Balances(clock=clock)
         self.indicators = indicators or Indicators(clock=clock)
 
+    def chart_options(self):
+        main = next((item for item in self.config.instances if item.id == 'main'), None)
+        return dict(shared_chart=True, chart_instance=main,
+                    chart_balances=self.balances.peek(main) if main is not None else None)
+
+    async def chart_balance_demand(self, instance):
+        main = next((item for item in self.config.instances if item.id == 'main'), None)
+        if main is not None and main.id != instance.id:
+            await self.balances.get(main)
+
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
             while True:
@@ -176,16 +186,23 @@ class Application:
                 await self.balances.get(instance)
                 if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
                     return 401, {"error": "Access denied."}
+                await self.chart_balance_demand(instance)
+                if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
+                    return 401, {"error": "Access denied."}
             if symbols:
                 await asyncio.to_thread(self.prices.wait_ready, symbols)
             args = (instance, period, account, self.prices, self.clock(), mode)
             options = {"version": 2, "idle_balances": self.balances.peek(instance), "clock": self.clock} if version == 2 else {}
+            if version == 2:
+                options.update(self.chart_options())
             value = await asyncio.to_thread(self.files.build, *args, **options)
         finally:
             if symbols:
                 await asyncio.to_thread(self.prices.release, symbols)
         if value is None:
             return 503, {"error": "Dashboard data not available yet."}
+        if version == 2 and await asyncio.to_thread(self.store.authenticate, token) != instance.id:
+            return 401, {"error": "Access denied."}
         return 200, value
 
     async def resolve(self, scope):
@@ -296,12 +313,23 @@ class Application:
                     if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
                         await send({"type": "websocket.close", "code": 1008})
                         return
+                    await self.chart_balance_demand(instance)
+                    if receiver.done():
+                        return
+                    if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
+                        await send({"type": "websocket.close", "code": 1008})
+                        return
                 args = (instance, period, account, self.prices, self.clock(), mode)
                 options = {"version": 2, "idle_balances": self.balances.peek(instance), "clock": self.clock} if version == 2 else {}
+                if version == 2:
+                    options.update(self.chart_options())
                 value = (await asyncio.to_thread(self.alerts.read, instance, self.clock(), cursor) if alerts
                          else await asyncio.to_thread(self.files.build, *args, **options))
                 if value is None:
                     raise InvalidData()
+                if version == 2 and not alerts and await asyncio.to_thread(self.store.authenticate, token) != instance.id:
+                    await send({"type": "websocket.close", "code": 1008})
+                    return
                 if pnl_alerts:
                     value['openPnl'] = await asyncio.to_thread(self.files.pnl_sample, instance, self.prices, self.clock())
                 raw = encode(value).decode("utf-8")

@@ -255,8 +255,9 @@ beside each other, no Trades search bar, paired counts, and
 Current drawdown in place of Average trade. Both drawdown cards must show
 percentage first, matching logged Edge dollars below, and Edge CSV · Lifetime.
 Changing the visible timeframe or selecting Backtest must leave these cards on
-lifetime seeded-plus-live Edge closes. Main uses Wallet 1/A only; other instances
-use their own Edge file. Model filters still apply. Check single-wallet
+lifetime reviewed-history-plus-seed/live Edge closes using the canonical chart
+merge, source-capital preservation and overlap removal. All three instance keys
+use Main’s combined-wallet chart and drawdowns. Model filters still apply. Check single-wallet
 instances, a close older than a year, missing capital/history, and a maximum-percent
 interval with a smaller dollar loss than the current interval. Capital estimates
 must be disclosed in calculation help. Confirm switching filters leaves Home real. Background the app and confirm no recurring

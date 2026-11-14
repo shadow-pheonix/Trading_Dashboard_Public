@@ -73,7 +73,7 @@ def paired_trades(rows, accounts):
     return result
 
 
-def normalized_equity(rows, start, *, include_drawdowns=False):
+def normalized_equity(rows, start, *, include_drawdowns=False, include_row_equities=False):
     """Port Edge Monitor's capital rebuild and source-aware compounding.
 
     Pairing/source scope happens first. Missing capital stays unavailable rather
@@ -101,12 +101,20 @@ def normalized_equity(rows, start, *, include_drawdowns=False):
     current_loss = maximum_loss = dict(pct=0.0, usd=0.0)
     points = {start: 10000.0} if start and len(rows) < 20000 else {}
     legacy = False
+    row_equities = []
     for row in rows:
         capital = row.get('_chart', {})
         pnl = row['netPnl']
         if cumulative is not None:
             cumulative += pnl
-        if row['source'] == 'backtest':
+        if row['source'] == 'backtest' and capital.get('sourceCapital') is not None:
+            # Updated Edge loader preserves each simulation's own pre-close
+            # capital before independently scaled source histories are merged.
+            base = capital['sourceCapital']
+            if base <= 0:
+                return None
+            fraction = pnl / base
+        elif row['source'] == 'backtest':
             if cumulative is None:
                 return None
             base = previous_backtest if previous_backtest is not None and previous_backtest > 0 else cumulative - pnl
@@ -142,6 +150,8 @@ def normalized_equity(rows, start, *, include_drawdowns=False):
             return None
         if value < 0:
             return None
+        if include_row_equities:
+            row_equities.append(value)
         # Edge Monitor _equity_and_drawdown_from_returns: untouched starting
         # capital is part of the high-water mark; percentage is relative to peak.
         # Calculate before timestamp coalescing so no intra-timestamp trough is lost.
@@ -168,6 +178,8 @@ def normalized_equity(rows, start, *, include_drawdowns=False):
         'points': [{'timestamp': stamp, 'equity': value} for stamp, value in sorted(points.items())]}
     if include_drawdowns:
         result['matchedDrawdowns'] = dict(current=current_loss, maximum=maximum_loss)
+    if include_row_equities:
+        result['rowEquities'] = row_equities
     return result
 
 

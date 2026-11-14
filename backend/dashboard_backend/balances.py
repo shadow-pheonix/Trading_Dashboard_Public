@@ -25,6 +25,7 @@ def query_account(address):
     # marginSummary.accountValue is current perpetual account equity, including open P&L.
     equity = decimal(value['marginSummary']['accountValue'])
     positions = {}
+    unrealized, pnl_complete = 0.0, True
     try:
         raw_positions = value.get('assetPositions', [])
         if not isinstance(raw_positions, list) or len(raw_positions) > 100:
@@ -35,6 +36,10 @@ def query_account(address):
             size = decimal(position['szi'])
             if size == 0:
                 continue
+            try:
+                unrealized += decimal(position['unrealizedPnl'])
+            except (KeyError, InvalidData, TypeError, ValueError):
+                pnl_complete = False
             entry = decimal(position['entryPx'])
             leverage = position['leverage']
             # HL ROE uses entry notional / venue leverage, not the bot's
@@ -50,7 +55,9 @@ def query_account(address):
             positions[coin] = {'size': size, 'entryPrice': entry, 'entryMargin': margin}
     except (InvalidData, KeyError, TypeError, ValueError):
         positions = {}  # Bad optional position telemetry must not hide account equity.
-    return {'equity': equity, 'positions': positions}
+        pnl_complete = False
+    return {'equity': equity, 'positions': positions,
+            'unrealizedPnl': number(unrealized) if pnl_complete else None}
 
 
 def query_equity(address):
@@ -81,14 +88,15 @@ class Balances:
 
     async def _account(self, account):
         if not account.public_address:
-            return None, 'unconfigured', None, {}
+            return None, 'unconfigured', None, {}, None
         try:
             sample = await asyncio.to_thread(self.query, account.public_address)
             equity = sample['equity'] if isinstance(sample, dict) else sample
             positions = sample['positions'] if isinstance(sample, dict) else {}
-            return number(equity), 'ok', self.clock(), positions
+            unrealized = sample.get('unrealizedPnl') if isinstance(sample, dict) else None
+            return number(equity), 'ok', self.clock(), positions, number(unrealized, True)
         except Exception:
-            return None, 'failed', None, {}  # Never expose exception/provider/address payloads.
+            return None, 'failed', None, {}, None  # Never expose exception/provider/address payloads.
 
     async def _fetch(self, instance):
         try:
@@ -130,7 +138,7 @@ class Balances:
             encode(body)
             self.wallet_samples[instance.id] = {
                 'attemptedAt': attempted,
-                'accounts': {a.id: {'equity': s[0], 'status': s[1], 'sampledAt': s[2], 'positions': s[3]}
+                'accounts': {a.id: {'equity': s[0], 'status': s[1], 'sampledAt': s[2], 'positions': s[3], 'unrealizedPnl': s[4]}
                              for a, s in zip(instance.accounts, samples)}}
             # Failures are also briefly reused to prevent an outage causing a request storm.
             self.samples[instance.id] = self.monotonic(), body

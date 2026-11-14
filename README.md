@@ -37,9 +37,9 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
 - Analytics holds realized P&L, monthly results and statistics from combined closed trades:
   profit factor, best/worst trade, win/loss/breakeven counts and logged fees.
   Current drawdown replaces Average trade. Both drawdown cards always use lifetime
-  Edge CSV history (seeded and live trades) for the selected models, with percentage
+  Edge chart history (reviewed history plus non-overlapping seed/live rows) for the selected models, with percentage
   first and the logged dollar loss from that same interval below it. Each instance
-  uses its own file; Main uses Wallet 1/A only. See the
+  uses Main’s combined-wallet Telegram Edge chart. See the
   [drawdown contract](docs/API-v2.md#lifetime-edge-drawdown-cards).
 - Charts offer cumulative, daily and monthly P&L plus the Edge Monitor's
   reference equity curve, shown as percentage growth and selected by default,
@@ -130,6 +130,9 @@ taking an action that triggers one, including a push/PR, workflow dispatch or
 signing setup. Ask once per implementation batch; an explicit choice already
 given for that batch is sufficient. If the user chooses to wait, keep working on
 the requested implementations and defer the build so changes can share one APK.
+
+Run Android compilation, unit tests and lint on GitHub-hosted runners; do not
+start Gradle on the memory-limited VPS.
 
 [Android build](../../actions/workflows/android.yml) compiles the APK and runs unit
 tests and Android lint on main pushes/PRs. Verification also signs two disposable

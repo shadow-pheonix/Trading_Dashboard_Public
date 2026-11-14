@@ -62,14 +62,14 @@ class EdgeAnalyticsCase(unittest.TestCase):
         self.history(self.accounts[0], [self.row(pnl='-999')])
         self.assertEqual(dd, self.build()['edgeDrawdowns'])
 
-    def test_main_uses_wallet_a_only_for_closed_history(self):
-        self.write_edge([self.edge_row(pnl=-10, combined=90),
-                         self.edge_row(pnl=-900, combined=100, model='M1-Fast-B')])
+    def test_main_matches_telegram_combined_wallet_history_without_double_counting(self):
+        self.write_edge([self.edge_row(pnl=-10, combined=180),
+                         self.edge_row(pnl=-10, combined=180, model='M1-Fast-B')])
         value = self.build()
-        self.assertEqual('A', value['normalizedEquity']['walletScope'])
+        self.assertEqual('all', value['normalizedEquity']['walletScope'])
         self.assertAlmostEqual(9000, value['normalizedEquity']['points'][-1]['equity'])
         self.assertEqual(1, value['edgeDrawdowns']['closedTrades'])
-        self.assertEqual(10, value['edgeDrawdowns']['current']['usd'])
+        self.assertEqual(20, value['edgeDrawdowns']['current']['usd'])
 
     def test_instance_paths_never_share_or_substitute_history(self):
         for identity, loss in [('madhu', 20), ('vinay', 30)]:
@@ -132,13 +132,13 @@ class EdgeAnalyticsCase(unittest.TestCase):
             self.assertEqual(2, self.build(selected='M1', mode='edge')['edgeDrawdowns']['closedTrades'])
             self.assertIsNone(self.build(selected='M2', mode='edge')['normalizedEquity'])
 
-    def test_main_wallet_a_history_and_dotted_point_exclude_wallet_b_pnl_and_capital(self):
+    def test_direct_reader_retains_main_combined_wallet_legacy_estimate(self):
         for account, size in zip(self.accounts, (2, 20)):
             trade = dict(self.open_trade(), sz=size, entry_capital=200)
             self.state(account, trade)
         value = self.build()
         estimate = value['normalizedEquity']['openEstimate']
-        self.assertAlmostEqual(10, estimate['returnPct'])
+        self.assertAlmostEqual(55, estimate['returnPct'])
         self.assertEqual(fixtures.NOW, estimate['sampledAt'])
         self.assertEqual(220, value['metrics']['unrealizedPnl'])
         self.assertIsNone(self.build(mode='edge')['normalizedEquity']['openEstimate'])

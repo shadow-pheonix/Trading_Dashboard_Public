@@ -34,7 +34,7 @@ rollback() {
 trap rollback EXIT
 # Name both directories: install creates unnamed parents as 0700 under umask 077.
 install -d -m 755 "$work_path/backend" "$work_path/backend/dashboard_backend"
-modules=(__init__.py __main__.py api.py alerts.py balances.py config.py files.py grouping.py market.py portfolio.py storage.py validation.py)
+modules=(__init__.py __main__.py api.py alerts.py balances.py config.py edge_history.py files.py grouping.py market.py portfolio.py storage.py validation.py)
 for module in "${modules[@]}"; do
     git -C "$source_root" show "$reviewed_commit:backend/dashboard_backend/$module" > "$work_path/backend/dashboard_backend/$module"
     chmod 644 "$work_path/backend/dashboard_backend/$module"

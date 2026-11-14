@@ -402,22 +402,39 @@ The optional v2 `normalizedEquity` object contains `baseEquity=10000`,
 `equity`. This is the Edge Monitor's **$10k reference equity** calculation,
 not recorded account balance history. It is available for either source and
 any model selection when the Edge history has sufficient capital metadata.
-Both Real money and Backtest use the instance's own configured
-`edge_trades_combined.csv`, including seeded `backtest` and `live` rows. Main
-uses Wallet 1/A rows only; other instances use their own configured accounts,
-paired uniquely where two wallets exist. Period/model filters apply to this
-Edge curve; the statistics source selector does not change its historical source.
-Missing or invalid Edge data never falls back to regular trade CSVs or another
-instance. `historySource="edge_csv"` and `walletScope="A"|"all"` identify this
-independent curve, which remains available when regular trade capital or history
-is missing. Realized P&L and other trade statistics retain their selected source.
+All three instances use **Main's Telegram Edge chart**, including Main's combined
+wallet history. This is the same derived equity/drawdown series for each key;
+Home balances, positions, raw trades and ordinary statistics retain their own
+instance scope. If Main's history is unavailable, no other instance is substituted.
+Both Real money and Backtest port the updated `edge_engine.py`'s `load_edge_history`
+and `_prepare_equity_curve` pipeline. The loader reads Main's configured
+`edge_trades_combined.csv` and its adjacent reviewed historical artifact.
+It decodes only `_EMBEDDED_OFFLINE_B85` and `_EMBEDDED_OFFLINE_SHA256` literal
+assignments from `edge_engine.py`, verifies the decompressed checksum, and never
+imports or executes that module. The private dataset is never packaged in public
+source or APK assets. Embedded history takes precedence over a stale adjacent
+offline CSV; legacy engines without those constants use their adjacent
+`edge_history_offline.csv`. No artifact means Edge's seed/live fallback; an
+existing malformed artifact makes analytics unavailable.
 
-After unique A/B pairing and period filtering, capital is rebuilt from the
-first available raw cumulative capital minus that raw leg's P&L, followed by
-the paired P&L sequence. Backtest returns use successive rebuilt backtest
-capital. Live returns prefer recorded post-close `combined_equity` minus the
-trade's P&L; otherwise they use position quote size divided by leverage and
-model weight (M1 40%, M2 20%, M3 40%), matching the monitor's legacy convention.
+Before merging or removing overlaps, capture **each simulation source's own
+pre-close capital** on its complete history after exact wallet-leg collapse.
+This preserves fractional returns when the reviewed history and seed use different
+dollar scales. Merge precedence is reviewed history, seed, then live for an
+identical model/entry/exit. Logged rows through the reviewed history's final exit
+are excluded even if fill times differ. Collapse exact model/entry/exit wallet
+legs, then rebuild merged cumulative capital by compounding returns, never by
+adding independently scaled source dollars. Period/model filters follow this
+preparation. The selected statistics source does not change the chart source.
+`historySource="edge_csv"` and `walletScope="all"` identify the shared curve.
+
+Backtest fractional returns use the preserved source pre-close capital, matching
+`_edge_source_capital` in the updated engine. Standalone legacy histories use
+successive backtest capital. Live returns retain recorded post-close
+`combined_equity` minus the trade's P&L. When absent, Edge's legacy fallback is
+position quote size divided by leverage and model weight (M1 40%, M2 20%, M3 40%).
+No wallet split or replacement denominator is applied. YTD filters the complete
+prepared history at January 1 UTC and compounds the included fractional returns.
 The curve compounds these fractional returns on $10,000. The reference is
 `edge_engine.py`: `_unified_return_series` and
 `_equity_and_drawdown_from_returns`. Analytics opens on Equity and displays
@@ -434,18 +451,20 @@ recorded percentage drawdown metrics.
 
 Cumulative P&L and reference equity show a closed-trade line and a separate
 captured point including active P&L. Raw P&L adds captured saved-position P&L
-from Binance marks once. Reference equity applies the current open return
-using saved active entry capital plus sampled flat-account idle capital.
-For the Edge curve this is supplied separately as `openEstimate` with `returnPct`
-and `sampledAt`. Selected-model open P&L is divided by full saved-entry plus idle
-capital across the same wallets' models. Main uses Wallet 1/A for both its history
-and open estimate, excluding Wallet B's P&L and capital. Filtering to one model
-changes the numerator, not the full portfolio-capital denominator within those
-wallets. Missing or stale scoped inputs omit only that dotted point. The Edge source contains closed history; this separate estimate
-retains the dotted extension in both equity and drawdown without inserting a close.
-This follows the monitor's compounding convention while avoiding its exchange
-queries: no bot imports or bot environment access. Shared account samples follow
-the foreground demand rules below.
+from Binance marks once. Reference equity applies Main's current open return to the last closed equity
+point, exactly as `prepare_ytd_mark_to_market_curve`. The shared `openEstimate`
+contains `returnPct` and `sampledAt`. It uses Main's fresh Hyperliquid account
+samples: selected-model open P&L divided by **total equity minus all open P&L**
+across Main's accounts. All-model selection matches Telegram's
+`_fetch_current_unrealized_fraction`. Every account must be complete, positive
+in equity, and sampled within 15 seconds; no entry-capital or other-instance
+fallback changes this denominator. Foreground dashboard demand shares Main's
+existing 10-second account cache, including when Vinay or Madhu requests the
+chart. There is no background collection. Only derived percentages and chart
+points are shared; Main's raw account samples are not returned to other keys.
+The dotted extension remains linked across equity and drawdown, never inserted
+as a closed trade. Backtest has no open point. No bot import or environment
+access is used.
 Marks already stale at capture or missing capital make that open point unavailable;
 historical open P&L is not invented. Backtest never receives real positions.
 Recorded equity remains a separate view available only for actual samples.
@@ -495,12 +514,11 @@ history on stream updates. Neither navigation policy adds balance requests.
 The optional v2 `edgeDrawdowns` object supplies Current drawdown and Max drawdown:
 `period="All"`, `source="edge"`, `walletScope="A"|"all"`, `closedTrades`,
 `legacyCapitalEstimate`, and `current` / `maximum` objects containing `pct` and
-nullable `usd`. Both cards always use the instance's complete seeded-plus-live
+nullable `usd`. Both cards always use Main's complete reviewed-plus-seed/live
 Edge history, including closes older than a year, independently of the visible
-statistics source/timeframe. Selected models still apply. Main uses Wallet 1/A
-only; other instances use their own Edge file and configured wallets. No regular
-trade CSV, another instance's history, open position or price estimate enters the
-cards. Missing/invalid/incomplete Edge capital leaves them unavailable.
+statistics source/timeframe. Selected models still apply. All instance keys
+receive the same Main closed drawdowns. No regular trade CSV, open position or
+price estimate enters the cards. Missing/invalid/incomplete Edge capital leaves them unavailable.
 
 Percentages reuse the Edge Monitor compounding above, including untouched starting
 capital in the high-water mark. If a legacy live Edge row lacks position/leverage,

@@ -160,8 +160,8 @@ def main():
             assert body['openPerformance']['entryEquityUsd'] == 1100
             assert abs(body['openPerformance']['entryEquityReturnPct'] - 20 / 1100 * 100) < 1e-9
             assert body['normalizedEquity']['historySource'] == 'edge_csv'
-            assert body['normalizedEquity']['walletScope'] == 'A'
-            assert abs(body['normalizedEquity']['openEstimate']['returnPct'] - 2) < 1e-6
+            assert body['normalizedEquity']['walletScope'] == 'all'
+            assert abs(body['normalizedEquity']['openEstimate']['returnPct'] - 20 / 180 * 100) < 1e-6
             status, ytd = call('/v2/dashboard?period=YTD&model=all')
             assert status == 200 and ytd['period'] == 'YTD'
             assert ytd['normalizedEquity']['historySource'] == 'edge_csv'
@@ -198,7 +198,7 @@ def main():
                         assert status == 200 and http_snapshot['normalizedEquity']['drawdown'] == drawdown
                     else:
                         assert abs(body['normalizedEquity']['points'][-1]['equity'] - 10049.76) < 1e-6
-                        assert abs(body['normalizedEquity']['openEstimate']['returnPct'] - 2) < 1e-6
+                        assert abs(body['normalizedEquity']['openEstimate']['returnPct'] - 20 / 180 * 100) < 1e-6
                     if mode == 'real':
                         assert body['openPerformance']['entryEquityUsd'] == 1100
                         assert abs(body['openPerformance']['entryEquityReturnPct'] - 20 / 1100 * 100) < 1e-6

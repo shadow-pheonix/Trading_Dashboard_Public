@@ -29,10 +29,13 @@ Sharpe and recorded-equity percentage drawdown stay unavailable. Monthly cells s
 Single-account historical equity points use `exit_equity` only when recorded.
 V2 also provides [Edge Monitor reference equity](../docs/API-v2.md#edge-monitor-equity-and-chart-inspection)
 and its drawdown calculation using source-aware compounded trade returns. Equity
-and drawdowns always use each instance's complete Edge CSV (seed plus live);
-Main's closed history and dotted open estimate both use Wallet 1/A only. Other trade statistics retain
-the selected source. No balance queries or background collection are added for
-closed equity/drawdown calculation.
+and drawdowns port the updated Edge chart loader, preserving each simulation's
+original capital before combining reviewed history, seed and live trades.
+All instance keys use Main's combined-wallet chart, including its shared dotted
+open estimate; Home, raw trades and ordinary statistics remain instance-scoped.
+The private historical dataset is read in place and never copied into the public
+repository. Foreground requests share the existing Main account cache for the
+Telegram-compatible open fraction; there is no background collection.
 
 ## Trade source selection
 

@@ -31,7 +31,7 @@ getent group hlmacdbot_readers >/dev/null || fail 'Existing read-only hlmacdbot_
 useradd --system --user-group --home-dir /var/lib/trading-dashboard --shell /usr/sbin/nologin trading-dashboard
 install -d -m 755 /opt/trading-dashboard /opt/trading-dashboard/backend /opt/trading-dashboard/backend/dashboard_backend
 install -d -o trading-dashboard -g trading-dashboard -m 700 /var/lib/trading-dashboard /var/lib/trading-dashboard/keys
-modules=(__init__.py __main__.py api.py alerts.py balances.py config.py files.py grouping.py market.py portfolio.py storage.py validation.py)
+modules=(__init__.py __main__.py api.py alerts.py balances.py config.py edge_history.py files.py grouping.py market.py portfolio.py storage.py validation.py)
 for module in "${modules[@]}"; do
   git -C "$source_root" show "$expected_commit:backend/dashboard_backend/$module" \
     > "/opt/trading-dashboard/backend/dashboard_backend/$module"

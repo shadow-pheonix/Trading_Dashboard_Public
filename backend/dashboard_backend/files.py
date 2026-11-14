@@ -12,6 +12,7 @@ import threading
 from .market import decimal
 from .validation import InvalidData, decode, encode, number, snapshot, period_start
 from .grouping import model_projection, validate_v2, normalized_equity, paired_trades, edge_closed_drawdowns, wallet
+from .edge_history import reviewed_source, reviewed_rows, prepare_history
 
 MAX_HISTORY_BYTES = 8 * 1024 * 1024
 
@@ -85,6 +86,31 @@ def equity_open_estimate(samples, now):
     return dict(returnPct=fraction, sampledAt=min(times)) if fraction > -100 else None
 
 
+def edge_current_open_estimate(instance, selected, samples, now):
+    """Telegram's open mark: P&L / (account equity - all open P&L)."""
+    if not samples:
+        return None
+    equity, total_pnl, chosen_pnl, stamps = [], [], [], []
+    for account in instance.accounts:
+        sample = samples.get('accounts', {}).get(account.id)
+        if not sample or sample.get('status') != 'ok':
+            return None
+        try:
+            value, pnl, stamp = number(sample['equity']), number(sample['unrealizedPnl']), sample['sampledAt']
+            if value <= 0 or not isinstance(stamp, int) or not 0 <= now - stamp <= 15000:
+                return None
+        except (KeyError, InvalidData, TypeError):
+            return None
+        equity.append(value); total_pnl.append(pnl); stamps.append(stamp)
+        if selected == 'all' or account.strategy == selected:
+            chosen_pnl.append(pnl)
+    base = sum(equity) - sum(total_pnl)
+    if base <= 0:
+        return None
+    fraction = number(sum(chosen_pnl) / base * 100)
+    return dict(returnPct=fraction, sampledAt=min(stamps)) if fraction > -100 else None
+
+
 def timestamp(value):
     try:
         if not isinstance(value, str) or len(value) > 64:
@@ -106,10 +132,12 @@ def entry_timestamp(value):
     return None if value == "unknown" else timestamp(value)
 
 
-def read_stable(path, limit):
-    # Only caller-configured JSON/CSV. Reject symlink files and never inspect environment files.
+def read_stable(path, limit, *, reviewed_engine=False):
+    # JSON/CSV, plus the chart loader's exact adjacent reviewed module. Never
+    # execute it, follow a symlink, or inspect an environment file.
     path = Path(path)
-    if path.suffix not in (".json", ".csv") or path.name.startswith("."):
+    if (path.suffix not in (".json", ".csv") and not (reviewed_engine and path.name == 'edge_engine.py')
+            or path.name.startswith(".")):
         raise InvalidData()
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as file:
@@ -192,10 +220,40 @@ class BotFiles:
                 raise InvalidData()
             seen.add(trade["id"])
             output.append(trade)
-        output.sort(key=lambda t: (t["closedAt"], t["id"]))
+        output.sort(key=lambda t: t["closedAt"])  # Edge's stable CSV order at equal exit times.
         marker = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
         self.cache(key, marker, output)
         return output, info.st_mtime_ns // 1000000
+
+    def equity_history(self, instance, logged):
+        """Same private reviewed + seed + live input as Edge's Telegram chart."""
+        source, source_marker = reviewed_source(instance.edge_path)
+        info = os.stat(instance.edge_path, follow_symlinks=False)
+        marker = ((info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns), source_marker)
+        key = ('equity', instance.edge_path, str(source), instance.id,
+               tuple((a.id, a.edge_model, wallet(a)) for a in instance.accounts))
+        cached = self.history_cache.get(key)
+        if cached and cached[0] == marker:
+            self.history_cache.move_to_end(key)
+            return cached[1]
+        raw = reviewed_rows(source, lambda path, limit: read_stable(path, limit, reviewed_engine=True))
+        offline_end = max((timestamp(row['exit_time']) for row in raw), default=None)
+        accounts = instance.accounts
+        mapping = {a.edge_model: a for a in accounts}
+        ids = {a.id for a in accounts}
+        offline = []
+        for row in raw:
+            account = mapping.get(row['model'])
+            if account is not None:
+                item = self.trade_row(account, row, 'backtest')
+                item['_chart']['origin'] = 'offline_backtest'
+                offline.append(item)
+        logged = [dict(row, _chart=dict(row['_chart'])) for row in logged if row['accountId'] in ids]
+        output = prepare_history(offline, logged, offline_end)
+        if len(output) > 20000:
+            raise InvalidData()
+        self.cache(key, marker, output)
+        return output
 
     def history(self, account):
         try:
@@ -327,27 +385,25 @@ class BotFiles:
     def edge_analytics(self, instance, period, selected, now, rows=None, open_estimate=None):
         """Closed Edge history only, independent of regular trade CSVs and marks.
 
-        Each instance owns its configured path. Main uses Wallet 1/A only to avoid
-        counting the duplicated wallet histories; other instances keep their scope.
+        The application supplies Main for every instance. Wallet twins collapse
+        exactly as in the updated engine, retaining recorded combined capital.
         """
         try:
             if rows is None:
                 rows, updated = self.edge_history(instance)
                 if not 0 < updated <= now:
                     raise InvalidData()
-            scoped_accounts = tuple(a for a in instance.accounts
-                if instance.id != 'main' or wallet(a) == 'A')
-            ids = {a.id for a in scoped_accounts
+            rows = self.equity_history(instance, rows)
+            ids = {a.strategy for a in instance.accounts
                    if selected == 'all' or a.strategy == selected}
-            selected_rows = [r for r in rows if r['accountId'] in ids]
+            selected_rows = [r for r in rows if r['strategy'] in ids]
             if any(r['closedAt'] > now for r in selected_rows):
                 raise InvalidData()
-            selected_rows = sorted(paired_trades(selected_rows, scoped_accounts),
-                                   key=lambda r: (r['closedAt'], r['id']))
+            selected_rows = sorted(selected_rows, key=lambda r: r['closedAt'])
             start = period_start(period, now)
             curve = normalized_equity([r for r in selected_rows if r['closedAt'] >= start], start)
             drawdowns = edge_closed_drawdowns(selected_rows)
-            scope = 'A' if instance.id == 'main' else 'all'
+            scope = 'all'
             if curve is not None:
                 curve.update(historySource='edge_csv', walletScope=scope, openEstimate=open_estimate)
             if drawdowns is not None:
@@ -356,8 +412,19 @@ class BotFiles:
         except (OSError, InvalidData, ValueError, TypeError, csv.Error):
             return None, None  # Never substitute regular trade CSVs or another instance.
 
-    def build(self, instance, period, selected, prices, now, mode="real", version=1, idle_balances=None, clock=None):
+    def build(self, instance, period, selected, prices, now, mode="real", version=1, idle_balances=None, clock=None,
+              shared_chart=False, chart_instance=None, chart_balances=None):
         with self.lock:
+            def analytics(rows=None, estimate=None):
+                if version != 2:
+                    return None, None
+                if shared_chart:
+                    if chart_instance is None:
+                        return None, None
+                    mark = edge_current_open_estimate(chart_instance, selected, chart_balances, now) if mode == 'real' else None
+                    return self.edge_analytics(chart_instance, period, selected, now,
+                        rows if instance.id == chart_instance.id else None, mark)
+                return self.edge_analytics(instance, period, selected, now, rows, estimate)
             if mode == "edge":
                 rows, updated = self.edge_history(instance)
                 if updated <= 0 or updated > now:
@@ -367,7 +434,7 @@ class BotFiles:
                             for a in instance.accounts]
                 return self.summarize(instance, period, selected, histories, accounts, [], [],
                                       True, [], [], now, mode, version,
-                                      edge_analytics=self.edge_analytics(instance, period, selected, now, rows) if version == 2 else (None, None))
+                                      edge_analytics=analytics(rows))
             if mode != "real":
                 raise InvalidData()
             accounts, positions, histories, state_times, price_times, strategies = [], [], {}, [], [], []
@@ -426,8 +493,9 @@ class BotFiles:
                 # Active wallets use saved entry capital; flat wallets use sampled idle
                 # equity. Never replace a missing active entry with a current balance.
                 entry_equities.append(entry_equity)
-                if version == 2 and (instance.id != 'main' or wallet(account) == 'A'):
-                    # Main uses Wallet 1 for history, open P&L and capital.
+                if version == 2:
+                    # Legacy direct-reader estimate; the authenticated app uses
+                    # the shared Main mark from the same HL equity/P&L sample.
                     # Model filters change the numerator, not the portfolio
                     # capital denominator within those same wallet(s).
                     stamp = price[1] if chosen and price else now if not chosen else None
@@ -447,8 +515,7 @@ class BotFiles:
                                   capital=(complete_sum(invested), complete_sum(entry_equities)),
                                   btc_ticker=btc_ticker, uses_idle=uses_idle,
                                   idle_sampled_at=min(idle_times) if idle_times else None,
-                                  edge_analytics=self.edge_analytics(instance, period, selected, now,
-                                      open_estimate=equity_open_estimate(equity_samples, now)) if version == 2 else (None, None))
+                                  edge_analytics=analytics(estimate=equity_open_estimate(equity_samples, now)))
 
     @staticmethod
     def summarize(instance, period, selected, histories, accounts, positions, strategies,

@@ -133,7 +133,7 @@ readiness only; authenticated and exchange checks below remain necessary.
 ## Verify after the human upgrade
 
 The latest update requires the dashboard backend for
-[lifetime real-trade drawdowns](API-v2.md#lifetime-real-trade-drawdown-cards),
+[lifetime Edge drawdowns](API-v2.md#lifetime-edge-drawdown-cards),
 YTD and reference equity. Older backends leave the new cards unavailable.
 Verify YTD excludes prior-year closes after pairing and starts at January 1 on
 the $10k reference scale. Real money must use regular trade CSVs, and Backtest
@@ -253,9 +253,10 @@ position-set change must not create an alert. Do not place a trade to test this.
 Confirm Analytics and Trades headings above the period bar, source/model filters
 beside each other, no Trades search bar, paired counts, and
 Current drawdown in place of Average trade. Both drawdown cards must show
-percentage first, matching real dollars below, and Real closed trades · Lifetime.
+percentage first, matching logged Edge dollars below, and Edge CSV · Lifetime.
 Changing the visible timeframe or selecting Backtest must leave these cards on
-lifetime real closes; model filters still apply and combine A/B. Check single-wallet
+lifetime seeded-plus-live Edge closes. Main uses Wallet 1/A only; other instances
+use their own Edge file. Model filters still apply. Check single-wallet
 instances, a close older than a year, missing capital/history, and a maximum-percent
 interval with a smaller dollar loss than the current interval. Capital estimates
 must be disclosed in calculation help. Confirm switching filters leaves Home real. Background the app and confirm no recurring
@@ -269,8 +270,9 @@ show a red percentage drawdown pane below.
 Tap/drag either pane and use previous/next: both crosshairs and values must inspect
 the same timestamp. Check zero drawdown at new peaks, a first-trade loss, recovery,
 flat/single-point data, missing capital, and source/period/model changes. Drawdown
-must use that displayed equity scope, while the lifetime real DD cards stay independent.
-Inspect the final dashed segment on both panes:
+must use that displayed equity scope, while the lifetime Edge DD cards stay independent.
+Open full screen: the linked equity/drawdown charts must use landscape and restore
+the original orientation on exit. Inspect the final dashed segment on both panes:
 the last close and current snapshot must occupy their own time positions, with
 the elapsed time visible horizontally. Test the Fingerprint unlock switch across
 closing/reopening: disabled opens directly; enabled requires Android authentication

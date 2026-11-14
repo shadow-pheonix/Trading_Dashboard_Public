@@ -151,6 +151,27 @@ class DashboardApi {
         }
     }
 
+    suspend fun portfolio(connection: Connection): PortfolioSnapshot = suspendCancellableCoroutine { continuation ->
+        val call = client.newCall(portfolioRequest(connection))
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isActive) continuation.resumeWithException(DashboardError("Portfolio unavailable. Refresh to retry."))
+            }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val value = response.use { dashboardJson.decodeFromString<PortfolioSnapshot>(readBody(it)) }
+                    validatePortfolio(value)
+                    if (continuation.isActive) continuation.resume(value)
+                } catch (error: Exception) {
+                    AppDiagnostics.record(DiagnosticEvent.InvalidData, error = error)
+                    if (continuation.isActive) continuation.resumeWithException(
+                        if (error is DashboardError) error else DashboardError("Could not read portfolio securely."))
+                }
+            }
+        })
+    }
+
     suspend fun macd(connection: Connection): MacdSnapshot {
         return try { fetchMacd(liveChartRequest(connection), allowLegacy = true) }
         catch (_: LegacyChartEndpoint) {
@@ -211,6 +232,16 @@ class DashboardApi {
 }
 
 fun validateSnapshot(snapshot: DashboardSnapshot, period: String, account: String, mode: String = "real") {
+    snapshot.edgeDrawdowns?.let { drawdowns ->
+        if (drawdowns.period != "All" || drawdowns.source != "edge" || drawdowns.walletScope !in listOf("A", "all") ||
+            drawdowns.closedTrades !in 1..20000 || drawdowns.current.pct > drawdowns.maximum.pct)
+            throw DashboardError("Invalid Edge drawdowns.")
+        listOf(drawdowns.current, drawdowns.maximum).forEach { point ->
+            if (!point.pct.isFinite() || point.pct !in 0.0..100.0 ||
+                point.usd?.let { !it.isFinite() || it !in 0.0..1e20 } == true ||
+                point.pct == 0.0 && point.usd != 0.0) throw DashboardError("Invalid Edge drawdowns.")
+        }
+    }
     snapshot.realDrawdowns?.let { drawdowns ->
         if (drawdowns.period != "All" || drawdowns.source != "real" || drawdowns.closedTrades !in 1..20000 ||
             drawdowns.current.pct > drawdowns.maximum.pct) throw DashboardError("Invalid real-trade drawdowns.")
@@ -221,11 +252,19 @@ fun validateSnapshot(snapshot: DashboardSnapshot, period: String, account: Strin
         }
     }
     snapshot.normalizedEquity?.let { equity ->
+        if (equity.historySource !in listOf(null, "edge_csv") || equity.walletScope !in listOf("A", "all"))
+            throw DashboardError("Invalid equity history source.")
+        equity.openEstimate?.let { estimate ->
+            if (equity.historySource != "edge_csv" || snapshot.historyMode != "real" ||
+                !estimate.returnPct.isFinite() || estimate.returnPct <= -100.0 || estimate.returnPct > 1e20 ||
+                estimate.sampledAt <= 0 || snapshot.generatedAt - estimate.sampledAt !in -1_000L..15_000L)
+                throw DashboardError("Invalid open equity estimate.")
+        }
         equity.drawdown?.let { dd ->
             if (!dd.usd.isFinite() || !dd.pct.isFinite() || dd.usd < 0 || dd.pct !in 0.0..100.0 ||
                 (dd.usd == 0.0) != (dd.pct == 0.0)) throw DashboardError("Invalid Edge Monitor drawdown.")
         }
-        if (equity.baseEquity != 10000.0 || snapshot.metrics.realizedPnl == null || equity.points.isEmpty() ||
+        if (equity.baseEquity != 10000.0 || equity.historySource != "edge_csv" && snapshot.metrics.realizedPnl == null || equity.points.isEmpty() ||
             equity.points.size > 20000 || equity.points.map { it.timestamp }.distinct().size != equity.points.size ||
             equity.points.any { it.timestamp <= 0 || it.timestamp > snapshot.generatedAt || !it.equity.isFinite() || it.equity < 0 }) {
             throw DashboardError("Invalid normalized equity curve.")

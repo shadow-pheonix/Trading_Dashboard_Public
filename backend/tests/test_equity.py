@@ -122,8 +122,7 @@ class EquityReaderCase(unittest.TestCase):
         real = self.build()
         self.assertEqual(18, real['metrics']['realizedPnl'])
         self.assertEqual(1, real['metrics']['closedTrades'])
-        self.assertAlmostEqual(10360, real['normalizedEquity']['points'][-1]['equity'])
-        self.assertTrue(real['normalizedEquity']['legacyCapitalEstimate'])
+        self.assertIsNone(real['normalizedEquity'])  # Edge is unavailable; never substitute regular CSVs.
         self.assertNotIn('_chart', str(real))
         with self.assertRaises(InvalidData):
             self.build(mode='edge')
@@ -153,6 +152,12 @@ class EquityReaderCase(unittest.TestCase):
 
     def test_ytd_baseline_and_contract_reject_invalid_points(self):
         self.write_capital_history(self.accounts[0], 9, 1009)
+        edge = self.path / 'edge.csv'
+        edge.write_text('trade_num,model,side,entry_time,exit_time,entry_price,exit_price,pnl_usd,total_fees,source,cum_capital,pos_size_quote,leverage,combined_equity\n'
+            + ','.join(['1','M1-Fast','LONG',self.row()[2],self.row()[3],'100','110','9','1','backtest','1009','200','2','']) + '\n')
+        os.utime(edge, ns=((NOW - 100) * 1000000,) * 2)
+        self.main = replace(self.main, edge_path=str(edge), accounts=tuple(
+            replace(a, edge_model='M1-Fast' + ('-B' if a.id == 'b' else '')) for a in self.accounts))
         value = self.build('YTD', 'M1')
         self.assertEqual(dict(timestamp=period_start('YTD', NOW), equity=10000), value['normalizedEquity']['points'][0])
         for change in [dict(baseEquity=0), dict(points=[]),

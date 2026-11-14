@@ -159,10 +159,12 @@ def main():
             assert body['openPerformance']['investedReturnPct'] == 50
             assert body['openPerformance']['entryEquityUsd'] == 1100
             assert abs(body['openPerformance']['entryEquityReturnPct'] - 20 / 1100 * 100) < 1e-9
-            assert body['normalizedEquity'] is None
+            assert body['normalizedEquity']['historySource'] == 'edge_csv'
+            assert body['normalizedEquity']['walletScope'] == 'A'
+            assert abs(body['normalizedEquity']['openEstimate']['returnPct'] - 2) < 1e-6
             status, ytd = call('/v2/dashboard?period=YTD&model=all')
             assert status == 200 and ytd['period'] == 'YTD'
-            assert ytd['normalizedEquity'] is None
+            assert ytd['normalizedEquity']['historySource'] == 'edge_csv'
             assert call('/v2/dashboard?model=foreign')[0] == 403
             assert call('/v2/dashboard?account=a')[0] == 400
             assert call('/v2/balances', False)[0] == 401
@@ -173,6 +175,12 @@ def main():
             assert abs(balance['returnPct'] - 50 / 150 * 100) < 1e-6
             assert balance['sampledAt'] and [m['id'] for m in balance['models']] == ['M1','M2','M3']
             assert call('/v2/balances')[1] == balance
+            status, portfolio = call('/v2/dashboard?view=portfolio')
+            assert status == 200 and portfolio['totals']['equity'] == 200
+            assert portfolio['totals']['unrealizedPnl'] == 20
+            assert portfolio['instances'][0]['dashboard']['trades'] == []
+            assert call('/v2/dashboard?view=portfolio', False)[0] == 401
+
             for mode in ['real','edge']:
                 with connect(f'ws://127.0.0.1:{port}/v2/live?period=All&model=all&mode={mode}',
                              proxy=None, open_timeout=3, additional_headers={'Authorization': 'Bearer ' + token}) as stream:
@@ -189,7 +197,8 @@ def main():
                         status, http_snapshot = call('/v2/dashboard?period=All&model=all&mode=edge')
                         assert status == 200 and http_snapshot['normalizedEquity']['drawdown'] == drawdown
                     else:
-                        assert body['normalizedEquity'] is None  # No real closed trades yet.
+                        assert abs(body['normalizedEquity']['points'][-1]['equity'] - 10049.76) < 1e-6
+                        assert abs(body['normalizedEquity']['openEstimate']['returnPct'] - 2) < 1e-6
                     if mode == 'real':
                         assert body['openPerformance']['entryEquityUsd'] == 1100
                         assert abs(body['openPerformance']['entryEquityReturnPct'] - 20 / 1100 * 100) < 1e-6
@@ -210,10 +219,9 @@ def main():
                     raise AssertionError('Unauthenticated v2 socket was accepted.')
             except InvalidStatus as error:
                 assert error.response.status_code == 403
-            # Add real A/B closes solely in this synthetic fixture, including a
-            # close older than a year. Both HTTP and WS must keep lifetime real
-            # drawdowns while the visible page requests a week or Backtest.
-            histories = [(history, history.read_text()), (idle_history, idle_history.read_text())]
+            # Edge cards retain complete history across HTTP/WS and visible filters;
+            # changes to regular A/B CSVs cannot replace that source.
+            histories = [(history, history.read_text()), (idle_history, idle_history.read_text()), (edge, edge.read_text())]
             try:
                 old_close = datetime.fromtimestamp(time.time() - 400 * 86400, timezone.utc)
                 new_close = datetime.fromtimestamp(time.time() - 300, timezone.utc)
@@ -221,25 +229,32 @@ def main():
                 for number, (at, pnl) in enumerate(((old_close, -10), (new_close, 5)), 1):
                     opened_at = datetime.fromtimestamp(at.timestamp() - 10000, timezone.utc).isoformat()
                     rows += f'{number},LONG,{opened_at},{at.isoformat()},100,110,{pnl},1,40,1\n'
-                for path, _ in histories:
+                for path, _ in histories[:2]:
                     path.chmod(0o600); path.write_text(rows); path.chmod(0o400)
+                edge_rows = 'trade_num,source,model,side,entry_time,exit_time,entry_price,exit_price,pnl_usd,total_fees,cum_capital,pos_size_quote,leverage,combined_equity\n'
+                edge_rows += f'1,backtest,M1-Fast,LONG,{opened},{old_close.isoformat()},100,110,-100,1,900,400,2,\n'
+                edge_rows += f'2,live,M1-Fast,LONG,{opened},{new_close.isoformat()},100,110,50,1,950,400,2,1050\n'
+                # Seed entry must precede its historic exit.
+                seed_open = datetime.fromtimestamp(old_close.timestamp()-1000, timezone.utc).isoformat()
+                edge_rows = edge_rows.replace(f'LONG,{opened},{old_close.isoformat()}', f'LONG,{seed_open},{old_close.isoformat()}')
+                edge.chmod(0o600); edge.write_text(edge_rows); edge.chmod(0o400)
                 reference = None
                 for mode in ('real', 'edge'):
                     status, received = call(f'/v2/dashboard?period=1W&model=all&mode={mode}')
                     assert status == 200
-                    drawdowns = received['realDrawdowns']
-                    assert drawdowns['source'] == 'real' and drawdowns['period'] == 'All'
+                    drawdowns = received['edgeDrawdowns']
+                    assert drawdowns['source'] == 'edge' and drawdowns['period'] == 'All'
                     assert drawdowns['closedTrades'] == 2
                     assert abs(drawdowns['current']['pct'] - 5.5) < 1e-6
-                    assert drawdowns['current']['usd'] == 10
+                    assert drawdowns['current']['usd'] == 50
                     assert abs(drawdowns['maximum']['pct'] - 10) < 1e-6
-                    assert drawdowns['maximum']['usd'] == 20
+                    assert drawdowns['maximum']['usd'] == 100
                     if reference is not None:
                         assert drawdowns == reference
                     reference = drawdowns
                     with connect(f'ws://127.0.0.1:{port}/v2/live?period=1W&model=all&mode={mode}',
                                  proxy=None, open_timeout=3, additional_headers={'Authorization': 'Bearer ' + token}) as stream:
-                        assert json.loads(stream.recv(timeout=5))['realDrawdowns'] == reference
+                        assert json.loads(stream.recv(timeout=5))['edgeDrawdowns'] == reference
                 assert 'realDrawdowns' not in call('/v1/dashboard?period=1W&account=all')[1]
             finally:
                 for path, original in histories:
@@ -271,7 +286,7 @@ def main():
             assert idle_state.stat().st_mode & 0o777 == 0o400
             assert idle_history.stat().st_mode & 0o777 == 0o400
             assert edge.stat().st_mode & 0o777 == 0o400
-            print('HTTP/WebSocket smoke passed: real/edge modes, lifetime real drawdowns with matched cash losses, combined calculations, authentication, scope, revocation, read-only inputs.')
+            print('HTTP/WebSocket smoke passed: real/edge modes, lifetime Edge drawdowns and scoped open estimates, portfolio projection, authentication, scope, revocation, read-only inputs.')
         finally:
             process.terminate()
             try:

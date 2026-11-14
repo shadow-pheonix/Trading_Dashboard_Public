@@ -28,13 +28,16 @@ fees. Funding and cash-flow-adjusted percentage returns,
 Sharpe and recorded-equity percentage drawdown stay unavailable. Monthly cells show logged dollar P&L.
 Single-account historical equity points use `exit_equity` only when recorded.
 V2 also provides [Edge Monitor reference equity](../docs/API-v2.md#edge-monitor-equity-and-chart-inspection)
-and its drawdown calculation using source-aware compounded trade returns. Real money uses regular trade CSVs;
-Backtest uses its edge CSV. No balance queries or background collection are added.
+and its drawdown calculation using source-aware compounded trade returns. Equity
+and drawdowns always use each instance's complete Edge CSV (seed plus live);
+Main's closed history and dotted open estimate both use Wallet 1/A only. Other trade statistics retain
+the selected source. No balance queries or background collection are added for
+closed equity/drawdown calculation.
 
 ## Trade source selection
 
 Analytics and Trades offer **Real money** and **Backtest**.
-Real money reads regular `hl_trades_*.csv` files only. Backtest combines both
+Real money trade statistics read regular `hl_trades_*.csv` files. Equity and drawdowns follow the independent Edge contract above. Backtest combines both
 `backtest` and `live` rows in `edge_trades_combined.csv` for the configured models;
 P&L, win rate, monthly dollar results and cumulative P&L include both sources.
 Trade details identify each row's source. Backtest responses have no current

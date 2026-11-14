@@ -146,15 +146,22 @@ fun availableChartViews(snapshot: DashboardSnapshot): List<ChartView> =
     }
 
 fun closedChartValue(snapshot: DashboardSnapshot, view: ChartView): Double? {
-    val pnl = snapshot.metrics.realizedPnl ?: return null
     return when (view) {
-        ChartView.Cumulative -> pnl
+        ChartView.Cumulative -> snapshot.metrics.realizedPnl
         ChartView.NormalizedEquity -> snapshot.normalizedEquity?.points?.maxByOrNull { it.timestamp }?.equity
         else -> null
     }?.takeIf { it.isFinite() }
 }
 
 fun liveChartSample(snapshot: DashboardSnapshot, view: ChartView, now: Long): ChartSample? {
+    if (view == ChartView.NormalizedEquity && snapshot.normalizedEquity?.historySource == "edge_csv") {
+        val estimate = snapshot.normalizedEquity.openEstimate ?: return null
+        if (snapshot.historyMode != "real" || snapshot.generatedAt <= 0 ||
+            now - snapshot.generatedAt !in 0L..90_000L || now - estimate.sampledAt !in 0L..15_000L) return null
+        val closed = closedChartValue(snapshot, view) ?: return null
+        val value = closed * (1 + estimate.returnPct / 100)
+        return value.takeIf { it.isFinite() && it >= 0 }?.let { ChartSample(snapshot.generatedAt, it) }
+    }
     if (!isFresh(snapshot, now)) return null
     val closed = closedChartValue(snapshot, view) ?: return null
     val value = if (view == ChartView.NormalizedEquity) {
@@ -171,7 +178,9 @@ fun liveChartSample(snapshot: DashboardSnapshot, view: ChartView, now: Long): Ch
 // built this snapshot, rather than removing its open point as wall time passes.
 fun capturedChartSample(snapshot: DashboardSnapshot, view: ChartView): ChartSample? {
     if (snapshot.historyMode != "real") return null
-    val mark = snapshot.priceUpdatedAt?.takeIf { it - snapshot.generatedAt in 0L..1_000L }
+    val priceTime = if (view == ChartView.NormalizedEquity && snapshot.normalizedEquity?.historySource == "edge_csv")
+        snapshot.normalizedEquity.openEstimate?.sampledAt else snapshot.priceUpdatedAt
+    val mark = priceTime?.takeIf { it - snapshot.generatedAt in 0L..1_000L }
     val capturedAt = maxOf(snapshot.generatedAt, mark ?: snapshot.generatedAt)
     return liveChartSample(snapshot, view, capturedAt)
 }

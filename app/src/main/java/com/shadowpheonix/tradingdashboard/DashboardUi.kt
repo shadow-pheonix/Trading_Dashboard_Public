@@ -105,6 +105,9 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
     val state by vm.state.collectAsStateWithLifecycle()
     val inbox by vm.alertInbox.route.collectAsStateWithLifecycle()
     var chartModel by rememberSaveable(state.active?.id) { mutableStateOf<String?>(null) }
+    var equityChart by rememberSaveable(state.active?.id) { mutableStateOf<String?>(null) }
+    var portfolioOpen by rememberSaveable(state.active?.id) { mutableStateOf(false) }
+    LaunchedEffect(state.page) { if (state.page != Page.Analytics) equityChart = null }
     LaunchedEffect(state.page) { if (state.page != Page.Strategies) chartModel = null }
     val savedScreens = rememberSaveableStateHolder()
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
@@ -121,6 +124,10 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
         else AppUpdatePrompt(updateState, onUpdateInstall, onUpdateLater)
         if (inbox != null) {
             AlertInboxPage(state.connections, alertHistory, inbox!!, vm.alertInbox::back)
+        } else if (portfolioOpen && portfolioAvailable(state) && state.active != null) {
+            PortfolioScreen(state.active!!) { portfolioOpen = false }
+        } else if (equityChart != null && state.page == Page.Analytics && state.snapshot != null) {
+            EquityChartScreen(state.snapshot!!, ChartView.valueOf(equityChart!!)) { equityChart = null }
         } else if (chartModel != null && state.page == Page.Strategies && state.active != null) {
             ModelChartScreen(state, chartModel!!, { chartModel = null }, vm::refreshChart)
         } else savedScreens.SaveableStateProvider("dashboard") {
@@ -141,14 +148,16 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
                 }
             }) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding)) {
-                    Header(state, vm::refresh, vm::select) { vm.page(Page.Settings) }
+                    Header(state, vm::refresh, vm::select,
+                        onPortfolio = if (portfolioAvailable(state)) ({ portfolioOpen = true }) else null,
+                        onManage = { vm.page(Page.Settings) })
                     if (state.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Blue)
                     state.error?.let { message ->
                         Notice(message, Red, action = "Dismiss", onAction = vm::dismissError)
                     }
                     when {
                         state.page == Page.Settings || state.active == null -> SettingsScreen(state, vm, appLockEnabled, appLockError, onAppLockChange, updateState, onUpdateCheck, onUpdateInstall, alertsEnabled, onAlertsChange, alertStatus, { vm.alertInbox.open() }, connectionNotifications, onConnectionNotificationsChange)
-                        else -> ContentScreen(state, vm) { chartModel = it }
+                        else -> ContentScreen(state, vm, onEquityChart = { equityChart = it.name }) { chartModel = it }
                     }
                 }
             }
@@ -157,7 +166,8 @@ fun DashboardApp(vm: DashboardViewModel, appLockEnabled: Boolean = true, appLock
 }
 
 @Composable
-internal fun Header(state: DashboardState, onRefresh: () -> Unit, onSelect: (String) -> Unit, onManage: () -> Unit) {
+internal fun Header(state: DashboardState, onRefresh: () -> Unit, onSelect: (String) -> Unit,
+                    onManage: () -> Unit, onPortfolio: (() -> Unit)? = null) {
     var instanceMenu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -199,6 +209,8 @@ internal fun Header(state: DashboardState, onRefresh: () -> Unit, onSelect: (Str
                     }
                 }
                 DropdownMenu(expanded = instanceMenu, onDismissRequest = { instanceMenu = false }) {
+                    if (onPortfolio != null) DropdownMenuItem(text = { Text("Portfolio") },
+                        onClick = { instanceMenu = false; onPortfolio() })
                     state.connections.forEach { connection ->
                         DropdownMenuItem(text = { Text(connection.label) }, onClick = { instanceMenu = false; onSelect(connection.id) })
                     }
@@ -270,7 +282,7 @@ private fun Filters(state: DashboardState, vm: DashboardViewModel) {
 }
 
 @Composable
-private fun ContentScreen(state: DashboardState, vm: DashboardViewModel, onModelChart: (String) -> Unit) {
+private fun ContentScreen(state: DashboardState, vm: DashboardViewModel, onEquityChart: (ChartView) -> Unit, onModelChart: (String) -> Unit) {
     val snapshot = state.snapshot
     val balanceSample = scopedBalanceSample(state)
     var tradeDetail by remember { mutableStateOf<Trade?>(null) }
@@ -306,7 +318,7 @@ private fun ContentScreen(state: DashboardState, vm: DashboardViewModel, onModel
                 Page.Analytics -> {
                     item { PnlCard(snapshot) }
                     item { MetricGrid(snapshot) }
-                    item { CurveCard(snapshot) }
+                    item { CurveCard(snapshot, onFullScreen = onEquityChart) }
                     item { MonthlyCard(snapshot) }
                     item { Panel {
                         Text("Performance details", fontWeight = FontWeight.Bold)
@@ -315,7 +327,7 @@ private fun ContentScreen(state: DashboardState, vm: DashboardViewModel, onModel
                         KeyValue(if (state.balancesStale && balanceSample?.equity != null) "Current equity (stale)" else "Current equity",
                             money(balanceSample?.equity, currency = snapshot.currency))
                         KeyValue("Closed trades", snapshot.metrics.closedTrades?.toString() ?: "—")
-                        ExpandableHelp("About these values") { Text("Cash-flow-adjusted return and Sharpe need historical capital and cash-flow data. Both drawdown cards use lifetime real closed trades for the selected models.", color = Muted, fontSize = 12.sp)
+                        ExpandableHelp("About these values") { Text("Cash-flow-adjusted return and Sharpe need historical capital and cash-flow data. Both drawdown cards use the selected models’ complete Edge CSV history, including seeded and live trades.", color = Muted, fontSize = 12.sp)
                         if (snapshot.historyMode == "real") Text("Equity includes open P&L and refreshes when you open the instance or tap refresh.", color = Muted, fontSize = 11.sp) }
                     } }
                 }
@@ -433,7 +445,7 @@ private fun PnlCard(snapshot: DashboardSnapshot) {
 internal fun MetricGrid(snapshot: DashboardSnapshot) {
     val stats = remember(snapshot) { tradeStatistics(snapshot) }
     val metrics = snapshot.metrics
-    val drawdowns = snapshot.realDrawdowns
+    val drawdowns = snapshot.edgeDrawdowns
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Metric("Win rate", metrics.winRatePct?.let { "${number(it, 1)}%" } ?: "—", Blue, Icons.Outlined.TrackChanges, Modifier.weight(1f).fillMaxHeight())
@@ -448,7 +460,7 @@ internal fun MetricGrid(snapshot: DashboardSnapshot) {
                 Red, Icons.Outlined.Shield, Modifier.weight(1f).fillMaxHeight(),
                 secondaryValue = drawdowns?.maximum?.let { "(${money(it.usd, currency = snapshot.currency)})" })
         }
-        Text("Drawdowns · Real closed trades · Lifetime", color = Muted, fontSize = 11.sp)
+        Text("Drawdowns · Edge CSV · ${if (drawdowns?.walletScope == "A") "Wallet 1 · " else ""}Lifetime", color = Muted, fontSize = 11.sp)
         Panel {
             Text("Closed-trade statistics", fontWeight = FontWeight.Bold)
             KeyValue("Wins / losses / breakeven", stats?.let { "${it.wins} / ${it.losses} / ${it.breakeven}" } ?: "—")
@@ -456,13 +468,13 @@ internal fun MetricGrid(snapshot: DashboardSnapshot) {
             KeyValue("Worst trade", money(stats?.worstTrade, true, snapshot.currency))
             KeyValue("Logged fees", money(stats?.fees, currency = snapshot.currency))
             ExpandableHelp("Calculation details") {
-                Text("Fees are already included in net P&L. Profit factor = winning P&L ÷ absolute losing P&L. Drawdowns always use lifetime real closed trades for the selected models, including when the other values show Backtest or another timeframe. Wallet A+B legs are combined first. Percentages follow Edge Monitor's compounded returns below their running peak; each dollar amount is the actual closed P&L loss during that same interval. Maximum drawdown is ranked by percentage. Open P&L is excluded.", color = Muted, fontSize = 11.sp)
+                Text("Fees are already included in net P&L. Profit factor = winning P&L ÷ absolute losing P&L. Drawdowns always use the selected models’ complete Edge CSV history: seeded backtest plus live closed trades, regardless of the other statistics’ source/timeframe. Main uses Wallet 1 (A) only; other instances use their own Edge file. Percentages follow Edge Monitor's compounded returns below their running peak; each dollar amount is the logged Edge P&L loss during that same interval. Maximum drawdown is ranked by percentage. Open P&L is excluded.", color = Muted, fontSize = 11.sp)
                 if (drawdowns?.legacyCapitalEstimate == true)
                     Text("Drawdown percentages include estimates of historical capital.", color = Muted, fontSize = 11.sp)
                 if (drawdowns != null && (drawdowns.current.usd == null || drawdowns.maximum.usd == null))
                     Text("A dollar loss is unavailable when cash P&L gained during a return drawdown.", color = Muted, fontSize = 11.sp)
             }
-            if (drawdowns == null) Text("Real-trade drawdown history or capital is unavailable.", color = Muted, fontSize = 11.sp)
+            if (drawdowns == null) Text("Edge CSV drawdown history or capital is unavailable.", color = Muted, fontSize = 11.sp)
             if (metrics.totalReturnPct != null) KeyValue("Total return", percent(metrics.totalReturnPct))
             if (metrics.sharpeRatio != null) KeyValue("Sharpe ratio", number(metrics.sharpeRatio))
         }
@@ -483,10 +495,14 @@ private fun Metric(label: String, value: String, color: Color, icon: ImageVector
 }
 
 @Composable
-internal fun CurveCard(snapshot: DashboardSnapshot) {
-    var requestedView by rememberSaveable { mutableStateOf(defaultAnalyticsChart) }
+internal fun CurveCard(snapshot: DashboardSnapshot, fullscreen: Boolean = false,
+    initialView: ChartView = defaultAnalyticsChart, onFullScreen: ((ChartView) -> Unit)? = null,
+    onClose: () -> Unit = {}) {
+    var requestedView by rememberSaveable { mutableStateOf(initialView) }
     var menu by remember { mutableStateOf(false) }
-    val choices = remember(snapshot) { availableChartViews(snapshot) }
+    val choices = remember(snapshot, fullscreen) { availableChartViews(snapshot).filter {
+        !fullscreen || it == ChartView.NormalizedEquity || it == ChartView.Equity
+    } }
     val view = requestedView.takeIf { it in choices } ?: ChartView.Cumulative
     LaunchedEffect(view) { AppDiagnostics.record(DiagnosticEvent.AnalyticsView, mapOf(DiagnosticField.View to view.ordinal.toLong())) }
     val bars = view == ChartView.Daily || view == ChartView.Monthly
@@ -496,7 +512,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
     val recorded = series.recorded
     val samples = series.samples
     val live = series.captured
-    var selection by remember(snapshot.instance, snapshot.period, snapshot.selectedModel, snapshot.historyMode, view) {
+    var selection by rememberSaveable(snapshot.instance, snapshot.period, snapshot.selectedModel, snapshot.historyMode, view) {
         mutableStateOf<Int?>(null)
     }
     // Both panes use the same plot width, timeline and selected point.
@@ -530,9 +546,16 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
         if (view == ChartView.Monthly) "MMM yyyy" else if (axis) "dd MMM" else "dd MMM yyyy · HH:mm")
         .withZone(if (bars) java.time.ZoneOffset.UTC else ZoneId.systemDefault())
         .format(Instant.ofEpochMilli(timestamp))
-    Panel {
+    val content: @Composable ColumnScope.() -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(if (fullscreen) "${snapshot.instance} · $title · ${snapshot.period}" else title,
+                fontSize = if (fullscreen) 16.sp else 18.sp, fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (fullscreen) IconButton(onClick = onClose) {
+                Icon(Icons.Outlined.FullscreenExit, "Exit full-screen equity chart")
+            } else if (equity && onFullScreen != null) IconButton(onClick = { onFullScreen(view) }) {
+                Icon(Icons.Outlined.Fullscreen, "Open equity and drawdown full screen in landscape")
+            }
             Box {
                 TextButton(onClick = { menu = true }) {
                     Text(view.label, fontSize = 12.sp)
@@ -548,12 +571,20 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
             val inspected = samples[index]
             val values = samples.map { it.value }
             val bounds = chartBounds(values, bars)
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            if (fullscreen) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(if (view == ChartView.NormalizedEquity) equityPercent(inspected.value) else money(inspected.value, currency = snapshot.currency),
+                    style = Numeric, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("DD ${drawdownSeries?.samples?.getOrNull(index)?.value?.let { equityPercent(it).removePrefix("+") } ?: "—"}",
+                    color = negative, style = Numeric, fontSize = 15.sp)
+                Spacer(Modifier.weight(1f))
+                Text(sampleDate(inspected.timestamp), color = Muted, fontSize = 10.sp)
+            } else Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(if (view == ChartView.NormalizedEquity) equityPercent(inspected.value) else money(inspected.value, !equity, snapshot.currency), style = Numeric,
                     fontSize = 28.sp, fontWeight = FontWeight.Bold, color = if (equity) Ink else tone(inspected.value))
                 Text(sampleDate(inspected.timestamp), color = Muted, fontSize = 11.sp)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!fullscreen) Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Box(Modifier.size(7.dp).background(positive, RoundedCornerShape(50)))
                     Text(if (view == ChartView.Equity) "Recorded" else "Closed trades", fontSize = 10.sp, color = Muted)
@@ -564,7 +595,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
                     Text(if (live != null) "Open at snapshot" else "Open P&L unavailable", fontSize = 10.sp, color = Muted)
                 }
             }
-            Row(Modifier.fillMaxWidth().height(210.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().then(if (fullscreen) Modifier.weight(0.7f) else Modifier.height(210.dp)), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Canvas(Modifier.weight(1f).fillMaxHeight().semantics {
                     contentDescription = "$title, ${sampleDate(inspected.timestamp)}, ${if (view == ChartView.NormalizedEquity) equityPercent(inspected.value) else number(inspected.value)}"
                 }.then(inspection)) {
@@ -619,7 +650,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
             }
             if (equity) {
                 val drawdowns = drawdownSeries?.samples.orEmpty()
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                if (!fullscreen) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
                     Text("Drawdown", color = Muted, fontSize = 12.sp)
                     Text(drawdowns.getOrNull(index)?.value?.let { equityPercent(it).removePrefix("+") } ?: "—",
@@ -628,7 +659,7 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
                 if (drawdownSeries == null) Text("Drawdown needs a positive equity baseline.", color = Muted, fontSize = 11.sp)
                 else {
                     val ddBounds = chartBounds(drawdowns.map { it.value }, true).copy(high = 0.0)
-                    Row(Modifier.fillMaxWidth().height(110.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth().then(if (fullscreen) Modifier.weight(0.3f) else Modifier.height(110.dp)), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Canvas(Modifier.weight(1f).fillMaxHeight().semantics {
                             contentDescription = "Drawdown, ${sampleDate(inspected.timestamp)}, ${chartPercentAxisLabel(drawdowns[index].value)}. Linked to equity inspection."
                         }.then(inspection)) {
@@ -673,17 +704,18 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
                             (0..2).forEach { n -> Text(chartPercentAxisLabel(ddBounds.low * n / 2), color = Muted, fontSize = 9.sp) }
                         }
                     }
-                    Text("Below running peak · same period and source as equity", color = Muted, fontSize = 10.sp)
+                    if (!fullscreen) Text("Below running peak · same period and source as equity", color = Muted, fontSize = 10.sp)
                 }
             }
             if (samples.size > 1) Row(Modifier.fillMaxWidth().padding(end = axisWidth + 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(sampleDate(samples.first().timestamp, true), fontSize = 10.sp, color = Muted)
                 Text(sampleDate(samples.last().timestamp, true), fontSize = 10.sp, color = Muted)
             }
-            if (live != null && recorded.isNotEmpty()) Text("Dashed segment: last close → snapshot estimate",
+            if (!fullscreen && live != null && recorded.isNotEmpty()) Text("Dashed segment: last close → snapshot estimate",
                 color = Muted, fontSize = 10.sp)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (equity && drawdownSeries != null) "Tap or drag either chart" else "Tap or drag to inspect",
+                Text(if (fullscreen) "Edge CSV · ${if (snapshot.normalizedEquity?.walletScope == "A") "Wallet 1 · " else ""}${if (live != null) "Open at snapshot · " else ""}Tap or drag either chart"
+                    else if (equity && drawdownSeries != null) "Tap or drag either chart" else "Tap or drag to inspect",
                     color = Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
                 Text("${index + 1} / ${samples.size}", fontSize = 10.sp, color = Muted)
                 IconButton(onClick = { selection = index - 1 }, enabled = index > 0, modifier = Modifier.size(32.dp)) {
@@ -694,12 +726,15 @@ internal fun CurveCard(snapshot: DashboardSnapshot) {
                 }
             }
         }
-        if (view == ChartView.NormalizedEquity) Text(
-            if (snapshot.normalizedEquity?.legacyCapitalEstimate == true) "Compounded return · includes estimated legacy capital"
-            else "Compounded trade returns · starts at 0%", color = Muted, fontSize = 10.sp)
-        else if (snapshot.normalizedEquity == null && view == ChartView.Cumulative)
-            Text("Equity needs recorded trade capital. Update the dashboard if needed.", color = Muted, fontSize = 10.sp)
+        if (!fullscreen && view == ChartView.NormalizedEquity) Text(
+            if (snapshot.normalizedEquity?.legacyCapitalEstimate == true) "Edge CSV · compounded return · includes estimated legacy capital"
+            else "Edge CSV · seeded + live · starts at 0%", color = Muted, fontSize = 10.sp)
+        else if (!fullscreen && snapshot.normalizedEquity == null && view == ChartView.Cumulative)
+            Text("Equity needs complete Edge CSV history and capital. No regular-trade fallback is used.", color = Muted, fontSize = 10.sp)
     }
+    if (fullscreen) Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
+    else Panel(content)
 }
 
 @Composable

@@ -11,6 +11,7 @@ from .balances import Balances
 from .alerts import Alerts
 from .indicators import Indicators, chart_time, LIVE_CHART_QUERY
 from .grouping import MODELS
+from .portfolio import collect_portfolio
 
 
 def margin_requested(scope):
@@ -130,6 +131,19 @@ class Application:
         if status is not None:
             return status, resolved
         instance, token, period, account, mode = resolved
+        if scope['path'] == '/v2/dashboard' and scope.get('query_string') == b'view=portfolio':
+            if instance.id != 'main':
+                return 403, {'error': 'Access denied.'}
+            symbols = {'BTCUSDT'} | {a.symbol for item in self.config.instances for a in item.accounts}
+            await self.subscribe(symbols)
+            try:
+                await asyncio.to_thread(self.prices.wait_ready, symbols)
+                body = await collect_portfolio(self.config, self.files, self.balances, self.prices, self.clock)
+            finally:
+                await asyncio.to_thread(self.prices.release, symbols)
+            if await asyncio.to_thread(self.store.authenticate, token) != instance.id:
+                return 401, {'error': 'Access denied.'}
+            return 200, body
         query = scope.get('query_string')
         if scope["path"] == "/v2/dashboard" and query in (b"view=macd", b"view=chart", LIVE_CHART_QUERY):
             value = await (self.indicators.chart(instance, live=True) if query == LIVE_CHART_QUERY else
@@ -199,7 +213,7 @@ class Application:
                 raise InvalidData()
             params = parse_qs(query.decode("ascii"), keep_blank_values=True,
                               strict_parsing=True, max_num_fields=3)
-            indicator_view = scope["path"] == "/v2/dashboard" and query in (b"view=macd", b"view=chart", LIVE_CHART_QUERY)
+            indicator_view = scope["path"] == "/v2/dashboard" and query in (b"view=macd", b"view=chart", b"view=portfolio", LIVE_CHART_QUERY)
             allowed = ({"view", "history", "live"} if indicator_view and query == LIVE_CHART_QUERY else
                        {"view"} if indicator_view else
                        {"after"} if scope["path"] in ("/v2/alerts", "/v2/alerts/live") else

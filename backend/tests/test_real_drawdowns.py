@@ -63,8 +63,13 @@ class RealDrawdownMathCase(unittest.TestCase):
         self.assertEqual(10000, real_closed_drawdowns(scaled)['maximum']['usd'])
 
 
-class RealDrawdownReaderCase(unittest.TestCase):
-    setUp = fixtures.BackendCase.setUp
+class EdgeLedgerDrawdownReaderCase(unittest.TestCase):
+    def setUp(self):
+        fixtures.BackendCase.setUp(self)
+        self.accounts = tuple(replace(a, edge_model='M1-Fast' + ('-B' if a.id == 'b' else '')) for a in self.accounts)
+        self.main = replace(self.main, id='vinay', accounts=self.accounts, edge_path=str(self.path/'edge.csv'))
+        self.edge_rows = {}
+
     state = fixtures.BackendCase.state
     history = fixtures.BackendCase.history
     row = fixtures.BackendCase.row
@@ -77,6 +82,17 @@ class RealDrawdownReaderCase(unittest.TestCase):
                 values = self.row(offset=offset, number=str(number), pnl=str(pnl))
                 values[-1] = account.strategy
                 writer.writerow(values + [position, leverage, entry])
+        self.edge_rows[account.id] = []
+        for number, (offset, pnl, position, leverage, entry) in enumerate(entries, 1):
+            values = self.row(offset=offset, number=str(number), pnl=str(pnl))
+            values[-1] = account.edge_model
+            self.edge_rows[account.id].append(values + [position, leverage, entry])
+        with Path(self.main.edge_path).open('w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(fixtures.COLUMNS + ['pos_size', 'leverage', 'entry_capital'])
+            writer.writerows(row for rows in self.edge_rows.values() for row in rows)
+        os.utime(self.main.edge_path, ns=((fixtures.NOW-100)*1000000,)*2)
+
 
     def write_edge(self):
         self.main = replace(self.main, edge_path=str(self.path / 'edge.csv'), accounts=tuple(
@@ -96,21 +112,21 @@ class RealDrawdownReaderCase(unittest.TestCase):
         self.write_history(self.accounts[0], [(400 * 86400000, -10, 40, 1, ''), (1000, 5, 40, 1, '')])
         value = self.build('1W')
         self.assertEqual(5, value['metrics']['realizedPnl'])
-        self.assertIsNotNone(value.get('realDrawdowns'))
-        drawdown = value['realDrawdowns']
+        self.assertIsNotNone(value.get('edgeDrawdowns'))
+        drawdown = value['edgeDrawdowns']
         self.assertEqual('All', drawdown['period'])
-        self.assertEqual('real', drawdown['source'])
+        self.assertEqual('edge', drawdown['source'])
         self.assertEqual(2, drawdown['closedTrades'])
         self.assertAlmostEqual(5.5, drawdown['current']['pct'])
         self.assertEqual(5, drawdown['current']['usd'])
         self.assertAlmostEqual(10, drawdown['maximum']['pct'])
         self.assertEqual(10, drawdown['maximum']['usd'])
-        self.assertEqual(drawdown, self.build('1Y')['realDrawdowns'])
+        self.assertEqual(drawdown, self.build('1Y')['edgeDrawdowns'])
 
     def test_two_wallets_combine_before_the_lifetime_return_and_cash_loss(self):
         for account in self.accounts:
             self.write_history(account, [(1000, -10, 40, 1, '')])
-        drawdown = self.build().get('realDrawdowns')
+        drawdown = self.build().get('edgeDrawdowns')
         self.assertIsNotNone(drawdown)
         self.assertEqual(1, drawdown['closedTrades'])
         self.assertAlmostEqual(10, drawdown['current']['pct'])
@@ -120,38 +136,36 @@ class RealDrawdownReaderCase(unittest.TestCase):
     def test_single_wallet_can_use_recorded_entry_capital_when_legacy_leverage_is_missing(self):
         self.main = replace(self.main, accounts=self.accounts[:1])
         self.write_history(self.accounts[0], [(1000, -10, 40, '', 40)])
-        drawdown = self.build().get('realDrawdowns')
+        drawdown = self.build().get('edgeDrawdowns')
         self.assertIsNotNone(drawdown)
         self.assertAlmostEqual(10, drawdown['current']['pct'])
         self.assertEqual(10, drawdown['current']['usd'])
         self.assertTrue(drawdown['legacyCapitalEstimate'])
 
-    def test_backtest_and_timeframe_filters_cannot_change_real_drawdowns_or_query_prices(self):
+    def test_edge_cards_use_complete_edge_history_without_reading_regular_csvs(self):
         self.write_history(self.accounts[0], [(400 * 86400000, -10, 40, 1, ''), (1000, 5, 40, 1, '')])
-        real = self.build('1W')['realDrawdowns']
-        self.write_edge()
+        expected = self.build('1W')['edgeDrawdowns']
         with patch.object(self.files, 'read_position', side_effect=AssertionError('Must not read open positions')), \
+                patch.object(self.files, 'history', side_effect=AssertionError('Must not read regular CSVs')), \
                 patch.object(self.prices, 'get', side_effect=AssertionError('Must not query marks')):
             edge = self.build('1W', mode='edge')
-        self.assertEqual(1000, edge['metrics']['realizedPnl'])
-        self.assertEqual(real, edge['realDrawdowns'])
-        self.assertEqual(real, self.build('1Y', mode='edge')['realDrawdowns'])
+        self.assertEqual(expected, edge['edgeDrawdowns'])
+        self.assertEqual(expected, self.build('1Y', mode='edge')['edgeDrawdowns'])
         Path(self.accounts[0].history_path).unlink()
-        self.assertIsNone(self.build('1W', mode='edge')['realDrawdowns'])
-        self.assertEqual(1000, self.build('1W', mode='edge')['metrics']['realizedPnl'])
+        self.assertEqual(expected, self.build('1W', mode='edge')['edgeDrawdowns'])
 
     def test_model_scope_missing_histories_and_legacy_v1_are_independent(self):
         self.accounts = (self.accounts[0], replace(self.accounts[1], strategy='M2'))
         self.main = replace(self.main, accounts=self.accounts)
         for account in self.accounts:
             self.write_history(account, [(1000, -10, 40, 1, '')])
-        one = self.build(selected='M1')['realDrawdowns']
+        one = self.build(selected='M1')['edgeDrawdowns']
         self.assertEqual(1, one['closedTrades'])
         self.assertEqual(10, one['current']['usd'])
         Path(self.accounts[1].history_path).unlink()
-        self.assertEqual(one, self.build(selected='M1')['realDrawdowns'])
-        self.assertIsNone(self.build()['realDrawdowns'])
-        with patch.object(self.files, 'lifetime_drawdowns', side_effect=AssertionError('v1 must not calculate new metrics')):
+        self.assertEqual(one, self.build(selected='M1')['edgeDrawdowns'])
+        self.assertIsNotNone(self.build()['edgeDrawdowns'])
+        with patch.object(self.files, 'edge_analytics', side_effect=AssertionError('v1 must not calculate new metrics')):
             self.assertNotIn('realDrawdowns', self.build(version=1))
 
     def test_contract_validates_real_lifetime_source_finite_values_and_matched_points(self):
@@ -159,8 +173,8 @@ class RealDrawdownReaderCase(unittest.TestCase):
         payload = self.build()
         payload['schemaVersion'] = 1
         payload['selectedAccount'] = payload.pop('selectedModel')
-        self.assertIsNotNone(validate_v2(payload, 'Main')['realDrawdowns'])
-        changes = [dict(period='1Y'), dict(source='edge'), dict(closedTrades=0), dict(closedTrades=20001),
+        self.assertIsNotNone(validate_v2(payload, 'Main')['edgeDrawdowns'])
+        changes = [dict(period='1Y'), dict(source='real'), dict(closedTrades=0), dict(closedTrades=20001),
             dict(legacyCapitalEstimate='yes'), dict(address='private'),
             dict(current=dict(pct=101, usd=10)), dict(current=dict(pct=-1, usd=10)),
             dict(current=dict(pct=float('nan'), usd=10)), dict(current=dict(pct=1, usd=-1)),
@@ -168,12 +182,12 @@ class RealDrawdownReaderCase(unittest.TestCase):
             dict(current=dict(pct=20, usd=10)), dict(current=dict(pct=1, usd=1, secret='private'))]
         for change in changes:
             invalid = copy.deepcopy(payload)
-            invalid['realDrawdowns'].update(change)
+            invalid['edgeDrawdowns'].update(change)
             with self.subTest(change=change), self.assertRaises(InvalidData):
                 validate_v2(invalid, 'Main')
         for current in [dict(pct=1, usd=None), dict(pct=1, usd=0), dict(pct=0, usd=0)]:
             valid = copy.deepcopy(payload)
-            valid['realDrawdowns']['current'] = current
+            valid['edgeDrawdowns']['current'] = current
             validate_v2(valid, 'Main')
 
 

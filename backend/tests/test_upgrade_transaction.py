@@ -30,7 +30,7 @@ class UpgradeTransactionCase(unittest.TestCase):
             (self.source/'backend/deploy'/name).write_text(script)
         (self.install/'venv/bin/python').symlink_to(sys.executable)
         self.executable(self.install/'https/caddy','#!/bin/sh\nexit 0\n')
-        for module in ['__init__.py','__main__.py','api.py','alerts.py','balances.py','config.py','files.py','grouping.py','market.py','storage.py','validation.py']:
+        for module in ['__init__.py','__main__.py','api.py','alerts.py','balances.py','config.py','files.py','grouping.py','market.py','portfolio.py','storage.py','validation.py']:
             (self.source/'backend/dashboard_backend'/module).write_text('# new '+module+'\n')
         (self.install/'backend/dashboard_backend/api.py').write_text('# old API\n')
         (self.install/'INSTALLED_COMMIT').write_text('b'*40+'\n')

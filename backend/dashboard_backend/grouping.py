@@ -186,6 +186,17 @@ def real_closed_drawdowns(rows):
                 legacyCapitalEstimate=result['legacyCapitalEstimate'], **result['matchedDrawdowns'])
 
 
+def edge_closed_drawdowns(rows):
+    """Lifetime seeded and live Edge returns, with losses from the same intervals."""
+    if len(rows) > 20000 or any(r['source'] not in ('backtest', 'live') for r in rows):
+        return None
+    result = normalized_equity(rows, 0, include_drawdowns=True)
+    if result is None:
+        return None
+    return dict(period='All', source='edge', closedTrades=len(rows),
+                legacyCapitalEstimate=result['legacyCapitalEstimate'], **result['matchedDrawdowns'])
+
+
 def model_projection(instance, histories, accounts, positions, strategies):
     if any(a.strategy not in MODELS for a in instance.accounts):
         raise InvalidData()
@@ -238,7 +249,7 @@ def model_projection(instance, histories, accounts, positions, strategies):
 
 def validate_v2(value, label):
     # Share the strict allowlist and numeric/privacy checks with the immutable v1 contract.
-    projected = {k: v for k, v in value.items() if k not in ("openPerformance", "btcTicker", "normalizedEquity", "realDrawdowns")}
+    projected = {k: v for k, v in value.items() if k not in ("openPerformance", "btcTicker", "normalizedEquity", "realDrawdowns", "edgeDrawdowns", "portfolioAvailable")}
     projected['positions'] = [{k: v for k, v in p.items() if k not in ('stopPrices', 'effectiveLeverage')}
                               for p in value.get('positions', [])]
     checked = snapshot(projected, MODELS, label)
@@ -255,17 +266,32 @@ def validate_v2(value, label):
         position['effectiveLeverage'] = effective_leverage
     checked['schemaVersion'] = 2
     checked['selectedModel'] = checked.pop('selectedAccount')
+    if type(value.get('portfolioAvailable', False)) is not bool:
+        raise InvalidData()
+    checked['portfolioAvailable'] = value.get('portfolioAvailable', False)
     equity = value.get('normalizedEquity')
     if equity is not None:
-        fields(equity, ('baseEquity', 'legacyCapitalEstimate', 'points'), ('drawdown',))
+        fields(equity, ('baseEquity', 'legacyCapitalEstimate', 'points'),
+               ('drawdown', 'historySource', 'walletScope', 'openEstimate'))
+        if (equity.get('historySource') not in (None, 'edge_csv')
+                or equity.get('walletScope', 'all') not in ('A', 'all')):
+            raise InvalidData()
         if (number(equity['baseEquity']) != 10000 or type(equity['legacyCapitalEstimate']) is not bool
-                or checked['metrics']['realizedPnl'] is None):
+                or equity.get('historySource') != 'edge_csv' and checked['metrics']['realizedPnl'] is None):
             raise InvalidData()
         points = records(equity['points'], ('timestamp', 'equity'), (),
             {'timestamp': lambda t: integer(t, 1), 'equity': number}, 'timestamp')
         if not points or any(p['timestamp'] > checked['generatedAt'] or p['equity'] < 0 for p in points):
             raise InvalidData()
         equity = dict(equity, points=sorted(points, key=lambda p: p['timestamp']))
+        estimate = equity.get('openEstimate')
+        if estimate is not None:
+            fields(estimate, ('returnPct', 'sampledAt'))
+            fraction, stamp = number(estimate['returnPct']), integer(estimate['sampledAt'], 1)
+            if (equity.get('historySource') != 'edge_csv' or checked['historyMode'] != 'real'
+                    or fraction <= -100 or not -1000 <= checked['generatedAt'] - stamp <= 15000):
+                raise InvalidData()
+            equity['openEstimate'] = dict(returnPct=fraction, sampledAt=stamp)
         drawdown = equity.get('drawdown')
         if drawdown is not None:
             fields(drawdown, ('usd', 'pct'))
@@ -274,24 +300,27 @@ def validate_v2(value, label):
                 raise InvalidData()
             equity['drawdown'] = dict(usd=usd, pct=pct)
     checked['normalizedEquity'] = equity
-    real_drawdowns = value.get('realDrawdowns')
-    if real_drawdowns is not None:
-        fields(real_drawdowns, ('period', 'source', 'closedTrades', 'legacyCapitalEstimate', 'current', 'maximum'))
-        if (real_drawdowns['period'] != 'All' or real_drawdowns['source'] != 'real'
-                or not 1 <= integer(real_drawdowns['closedTrades'], 1) <= 20000
-                or type(real_drawdowns['legacyCapitalEstimate']) is not bool):
-            raise InvalidData()
-        real_drawdowns = dict(real_drawdowns)
-        for key in ('current', 'maximum'):
-            point = real_drawdowns[key]
-            fields(point, ('pct', 'usd'))
-            pct, usd = number(point['pct']), number(point['usd'], True)
-            if not 0 <= pct <= 100 or (usd is not None and usd < 0) or pct == 0 and usd != 0:
+    for field, source in (('realDrawdowns', 'real'), ('edgeDrawdowns', 'edge')):
+        drawdowns = value.get(field)
+        if drawdowns is not None:
+            fields(drawdowns, ('period', 'source', 'closedTrades', 'legacyCapitalEstimate', 'current', 'maximum'),
+                   ('walletScope',) if source == 'edge' else ())
+            if (drawdowns['period'] != 'All' or drawdowns['source'] != source
+                    or drawdowns.get('walletScope', 'all') not in ('A', 'all')
+                    or not 1 <= integer(drawdowns['closedTrades'], 1) <= 20000
+                    or type(drawdowns['legacyCapitalEstimate']) is not bool):
                 raise InvalidData()
-            real_drawdowns[key] = dict(pct=pct, usd=usd)
-        if real_drawdowns['current']['pct'] > real_drawdowns['maximum']['pct']:
-            raise InvalidData()
-    checked['realDrawdowns'] = real_drawdowns
+            drawdowns = dict(drawdowns)
+            for key in ('current', 'maximum'):
+                point = drawdowns[key]
+                fields(point, ('pct', 'usd'))
+                pct, usd = number(point['pct']), number(point['usd'], True)
+                if not 0 <= pct <= 100 or (usd is not None and usd < 0) or pct == 0 and usd != 0:
+                    raise InvalidData()
+                drawdowns[key] = dict(pct=pct, usd=usd)
+            if drawdowns['current']['pct'] > drawdowns['maximum']['pct']:
+                raise InvalidData()
+        checked[field] = drawdowns
     performance = value.get('openPerformance')
     ticker = value.get('btcTicker')
     if checked['historyMode'] == 'edge' and (performance is not None or ticker is not None):

@@ -37,9 +37,10 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
 - Analytics holds realized P&L, monthly results and statistics from combined closed trades:
   profit factor, best/worst trade, win/loss/breakeven counts and logged fees.
   Current drawdown replaces Average trade. Both drawdown cards always use lifetime
-  real closed trades for the selected models, with percentage first and the actual
-  dollar loss from that same interval below it. See the
-  [drawdown contract](docs/API-v2.md#lifetime-real-trade-drawdown-cards).
+  Edge CSV history (seeded and live trades) for the selected models, with percentage
+  first and the logged dollar loss from that same interval below it. Each instance
+  uses its own file; Main uses Wallet 1/A only. See the
+  [drawdown contract](docs/API-v2.md#lifetime-edge-drawdown-cards).
 - Charts offer cumulative, daily and monthly P&L plus the Edge Monitor's
   reference equity curve, shown as percentage growth and selected by default,
   for either history source and model selection.
@@ -47,6 +48,8 @@ with readable profit/loss colors and bottom navigation. Kotlin + Jetpack Compose
   for Real money. Tap, drag or use previous/next controls to inspect points.
   Both equity views include a red percentage drawdown pane underneath, sharing
   the same timeline, selected point and filters. Touch either pane to inspect both.
+  The full-screen button opens these linked charts in landscape and restores the
+  prior orientation on close.
   The [chart contract](docs/API-v2.md#edge-monitor-equity-and-chart-inspection)
   defines capital requirements and legacy estimates. Recorded equity is offered
   only if actual samples exist. Cash-flow-adjusted return and Sharpe require

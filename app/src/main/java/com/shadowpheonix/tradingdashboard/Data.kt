@@ -44,7 +44,14 @@ data class DashboardSnapshot(
     val openPerformance: OpenPerformance? = null,
     val normalizedEquity: NormalizedEquity? = null,
     val realDrawdowns: RealDrawdowns? = null,
+    val edgeDrawdowns: EdgeDrawdowns? = null,
+    val portfolioAvailable: Boolean = false,
 )
+
+@Serializable
+data class EdgeDrawdowns(val period: String, val source: String, val closedTrades: Int,
+    val legacyCapitalEstimate: Boolean, val current: RealDrawdown, val maximum: RealDrawdown,
+    val walletScope: String = "all")
 
 @Serializable
 data class RealDrawdowns(val period: String, val source: String, val closedTrades: Int,
@@ -55,7 +62,11 @@ data class RealDrawdown(val pct: Double, val usd: Double?)
 
 @Serializable
 data class NormalizedEquity(val baseEquity: Double, val legacyCapitalEstimate: Boolean, val points: List<EquityPoint>,
-    val drawdown: Drawdown? = null)
+    val drawdown: Drawdown? = null, val historySource: String? = null, val walletScope: String = "all",
+    val openEstimate: EquityOpenEstimate? = null)
+
+@Serializable
+data class EquityOpenEstimate(val returnPct: Double, val sampledAt: Long)
 
 @Serializable
 data class Drawdown(val usd: Double, val pct: Double)

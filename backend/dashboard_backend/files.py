@@ -11,7 +11,7 @@ import threading
 
 from .market import decimal
 from .validation import InvalidData, decode, encode, number, snapshot, period_start
-from .grouping import model_projection, validate_v2, normalized_equity, paired_trades, real_closed_drawdowns
+from .grouping import model_projection, validate_v2, normalized_equity, paired_trades, edge_closed_drawdowns, wallet
 
 MAX_HISTORY_BYTES = 8 * 1024 * 1024
 
@@ -69,6 +69,20 @@ def open_performance(pnl, capital, uses_idle=False, idle_sampled_at=None):
             "entryEquityReturnPct": pnl / equity * 100 if pnl is not None and equity is not None and equity > 0 else None,
             "usesIdleBalances": uses_idle, "idleBalanceSampledAt": idle_sampled_at if equity is not None else None,
             "investedBasis": "entry_margin"}
+
+
+def equity_open_estimate(samples, now):
+    """Selected-model open P&L over the same wallets' full model entry capital."""
+    if not samples:
+        return None
+    pnl = complete_sum([sample[0] for sample in samples])
+    capital = complete_sum([sample[1] for sample in samples])
+    times = [sample[2] for sample in samples]
+    if (pnl is None or capital is None or capital <= 0
+            or any(stamp is None or not 0 <= now - stamp <= 15000 for stamp in times)):
+        return None
+    fraction = number(pnl / capital * 100)
+    return dict(returnPct=fraction, sampledAt=min(times)) if fraction > -100 else None
 
 
 def timestamp(value):
@@ -310,28 +324,37 @@ class BotFiles:
             except (OSError, InvalidData, ValueError, TypeError, csv.Error):
                 return None
 
-    def lifetime_drawdowns(self, instance, selected, now, histories=None, complete=True):
-        """Read regular closed CSVs only; no states, marks, balances or edge history."""
-        if not complete:
-            return None
+    def edge_analytics(self, instance, period, selected, now, rows=None, open_estimate=None):
+        """Closed Edge history only, independent of regular trade CSVs and marks.
+
+        Each instance owns its configured path. Main uses Wallet 1/A only to avoid
+        counting the duplicated wallet histories; other instances keep their scope.
+        """
         try:
-            rows = []
-            for account in instance.accounts:
-                if selected != 'all' and account.strategy != selected:
-                    continue
-                if histories is None:
-                    history, available = self.history(account)
-                    if not available:
-                        return None
-                else:
-                    history = histories[account.id]
-                rows.extend(history)
-            if any(r['closedAt'] > now for r in rows):
-                return None
-            rows = sorted(paired_trades(rows, instance.accounts), key=lambda r: (r['closedAt'], r['id']))
-            return real_closed_drawdowns(rows)
+            if rows is None:
+                rows, updated = self.edge_history(instance)
+                if not 0 < updated <= now:
+                    raise InvalidData()
+            scoped_accounts = tuple(a for a in instance.accounts
+                if instance.id != 'main' or wallet(a) == 'A')
+            ids = {a.id for a in scoped_accounts
+                   if selected == 'all' or a.strategy == selected}
+            selected_rows = [r for r in rows if r['accountId'] in ids]
+            if any(r['closedAt'] > now for r in selected_rows):
+                raise InvalidData()
+            selected_rows = sorted(paired_trades(selected_rows, scoped_accounts),
+                                   key=lambda r: (r['closedAt'], r['id']))
+            start = period_start(period, now)
+            curve = normalized_equity([r for r in selected_rows if r['closedAt'] >= start], start)
+            drawdowns = edge_closed_drawdowns(selected_rows)
+            scope = 'A' if instance.id == 'main' else 'all'
+            if curve is not None:
+                curve.update(historySource='edge_csv', walletScope=scope, openEstimate=open_estimate)
+            if drawdowns is not None:
+                drawdowns['walletScope'] = scope
+            return curve, drawdowns
         except (OSError, InvalidData, ValueError, TypeError, csv.Error):
-            return None  # Missing capital/history must not break unrelated Analytics data.
+            return None, None  # Never substitute regular trade CSVs or another instance.
 
     def build(self, instance, period, selected, prices, now, mode="real", version=1, idle_balances=None, clock=None):
         with self.lock:
@@ -344,12 +367,13 @@ class BotFiles:
                             for a in instance.accounts]
                 return self.summarize(instance, period, selected, histories, accounts, [], [],
                                       True, [], [], now, mode, version,
-                                      real_drawdowns=self.lifetime_drawdowns(instance, selected, now) if version == 2 else None)
+                                      edge_analytics=self.edge_analytics(instance, period, selected, now, rows) if version == 2 else (None, None))
             if mode != "real":
                 raise InvalidData()
             accounts, positions, histories, state_times, price_times, strategies = [], [], {}, [], [], []
             invested, entry_equities = [], []
             uses_idle, idle_times = False, []
+            equity_samples = []
             complete = True
             for account in instance.accounts:
                 trade, updated, history, available, price, opened, pnl = self.read_position(account, prices, now)
@@ -402,6 +426,12 @@ class BotFiles:
                 # Active wallets use saved entry capital; flat wallets use sampled idle
                 # equity. Never replace a missing active entry with a current balance.
                 entry_equities.append(entry_equity)
+                if version == 2 and (instance.id != 'main' or wallet(account) == 'A'):
+                    # Main uses Wallet 1 for history, open P&L and capital.
+                    # Model filters change the numerator, not the portfolio
+                    # capital denominator within those same wallet(s).
+                    stamp = price[1] if chosen and price else now if not chosen else None
+                    equity_samples.append((pnl if chosen else 0.0, entry_equity, stamp))
                 accounts.append({"id": account.id, "label": account.label, "equity": None, "unrealizedPnl": pnl})
                 if chosen:
                     strategies.append({"id": account.id, "name": account.strategy, "status": status,
@@ -417,12 +447,13 @@ class BotFiles:
                                   capital=(complete_sum(invested), complete_sum(entry_equities)),
                                   btc_ticker=btc_ticker, uses_idle=uses_idle,
                                   idle_sampled_at=min(idle_times) if idle_times else None,
-                                  real_drawdowns=self.lifetime_drawdowns(instance, selected, now, histories, complete) if version == 2 else None)
+                                  edge_analytics=self.edge_analytics(instance, period, selected, now,
+                                      open_estimate=equity_open_estimate(equity_samples, now)) if version == 2 else (None, None))
 
     @staticmethod
     def summarize(instance, period, selected, histories, accounts, positions, strategies,
                   complete, state_times, price_times, now, mode, version=1, capital=(None, None), btc_ticker=None,
-                  uses_idle=False, idle_sampled_at=None, real_drawdowns=None):
+                  uses_idle=False, idle_sampled_at=None, edge_analytics=(None, None)):
         chosen_count = sum(selected == "all" or selected == (a.strategy if version == 2 else a.id)
                            for a in instance.accounts)
         if version == 2:
@@ -462,8 +493,9 @@ class BotFiles:
                 for (y, m), pnl in sorted(monthly.items())] if complete else [],
             "trades": [{k: v for k, v in t.items() if not k.startswith('_')} for t in trades]}
         if version == 2:
-            result['normalizedEquity'] = normalized_equity(trades, start) if complete else None
-            result['realDrawdowns'] = real_drawdowns
+            result['portfolioAvailable'] = instance.id == 'main'
+            result['normalizedEquity'], result['edgeDrawdowns'] = edge_analytics
+            result['realDrawdowns'] = None  # Legacy field; never mislabel Edge history as real trades.
             result["openPerformance"] = open_performance(upnl, capital, uses_idle, idle_sampled_at) if mode == "real" else None
             result["btcTicker"] = btc_ticker if mode == "real" else None
             return validate_v2(result, instance.label)

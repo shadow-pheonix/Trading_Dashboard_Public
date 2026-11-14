@@ -28,6 +28,15 @@ wraps existing tokens without rotating them, printing them, or overwriting files
 and `mode`. Defaults are `1M`, `all`, `real`; model values are `all`, `M1`, `M2`,
 `M3`. Other account/instance selectors are rejected. The key alone determines
 instance scope. `/healthz` never activates prices, files or balance queries.
+The optional `portfolioAvailable` capability is true only for the configured
+primary (`main`) instance. Its key may request `GET /v2/dashboard?view=portfolio`:
+this exact, parameter-free view returns current Home projections and balances
+for configured instances, with complete-or-null totals. Other keys receive 403
+before any cross-instance reads or account queries. Revocation is checked again
+before returning the response. No history, chart, alert or trading endpoint gains
+cross-instance access. Collection is demand-only, with existing ten-second account
+sample caching; the client requests it only while that view is resumed.
+
 
 Snapshots have `schemaVersion=2` and `selectedModel` in place of `selectedAccount`.
 Their accounts array contains M1, M2 and M3, and position/trade `accountId` means
@@ -392,10 +401,16 @@ The optional v2 `normalizedEquity` object contains `baseEquity=10000`,
 `legacyCapitalEstimate`, optional `drawdown` with `usd` and `pct`, and `points` with UTC-millisecond `timestamp` and
 `equity`. This is the Edge Monitor's **$10k reference equity** calculation,
 not recorded account balance history. It is available for either source and
-any model selection when the selected, paired trade history is complete and
-has sufficient capital metadata. Real money reads regular account trade CSVs;
-Backtest reads both backtest and live rows from the configured edge CSV. The
-chart never substitutes one source's history for the other.
+any model selection when the Edge history has sufficient capital metadata.
+Both Real money and Backtest use the instance's own configured
+`edge_trades_combined.csv`, including seeded `backtest` and `live` rows. Main
+uses Wallet 1/A rows only; other instances use their own configured accounts,
+paired uniquely where two wallets exist. Period/model filters apply to this
+Edge curve; the statistics source selector does not change its historical source.
+Missing or invalid Edge data never falls back to regular trade CSVs or another
+instance. `historySource="edge_csv"` and `walletScope="A"|"all"` identify this
+independent curve, which remains available when regular trade capital or history
+is missing. Realized P&L and other trade statistics retain their selected source.
 
 After unique A/B pairing and period filtering, capital is rebuilt from the
 first available raw cumulative capital minus that raw leg's P&L, followed by
@@ -410,8 +425,8 @@ percentage growth `(equity / baseEquity - 1) * 100`, starting at 0%. Convert
 only after compounding closed returns and applying any captured open mark;
 a +10% trade followed by -10% produces -1%. The wire values remain on the
 $10k scale. If capital is unavailable, the labelled Cumulative fallback remains
-available and never invents percentage returns. Regular CSV
-`final_capital`/`pos_size` map to edge `cum_capital`/`pos_size_quote`. Legacy
+available and never invents percentage returns. Legacy Edge CSV capital aliases
+`final_capital`/`pos_size` map to `cum_capital`/`pos_size_quote`. Legacy
 estimates are labelled. Missing required capital leaves the curve unavailable;
 it does not create a zero return. YTD begins at January 1 UTC on the $10k base.
 This reference curve does not populate cash-flow-adjusted return, Sharpe or
@@ -421,6 +436,13 @@ Cumulative P&L and reference equity show a closed-trade line and a separate
 captured point including active P&L. Raw P&L adds captured saved-position P&L
 from Binance marks once. Reference equity applies the current open return
 using saved active entry capital plus sampled flat-account idle capital.
+For the Edge curve this is supplied separately as `openEstimate` with `returnPct`
+and `sampledAt`. Selected-model open P&L is divided by full saved-entry plus idle
+capital across the same wallets' models. Main uses Wallet 1/A for both its history
+and open estimate, excluding Wallet B's P&L and capital. Filtering to one model
+changes the numerator, not the full portfolio-capital denominator within those
+wallets. Missing or stale scoped inputs omit only that dotted point. The Edge source contains closed history; this separate estimate
+retains the dotted extension in both equity and drawdown without inserting a close.
 This follows the monitor's compounding convention while avoiding its exchange
 queries: no bot imports or bot environment access. Shared account samples follow
 the foreground demand rules below.
@@ -443,15 +465,17 @@ equity make drawdown unavailable. A zero equity value below a positive peak is
 -100%. A captured open estimate remains a separate point connected by a dashed
 segment on both panes.
 One selection and the same horizontal geometry link tap, drag and previous/next
-inspection across both panes. This filtered chart is independent of the lifetime
-real closed-trade cards; no API fields or additional data requests are needed.
+inspection across both panes. The full-screen button opens the same two-pane
+renderer in landscape, without navigation chrome. It retains point inspection,
+period/model scope and dotted estimates; closing restores the prior orientation.
+This filtered chart remains independent of the lifetime Edge drawdown cards.
 
 `normalizedEquity.drawdown` keeps its legacy contract for older clients: the
 largest percentage drop below the running peak and the independent largest
 reference-dollar drop, calculated before timestamp coalescing. They may occur at
 different troughs. The untouched start belongs to the peak; source, period and
 model filters still apply. Missing capital or incomplete history leaves it null.
-Current cards use [lifetime real-trade drawdowns](#lifetime-real-trade-drawdown-cards)
+Current cards use [lifetime Edge drawdowns](#lifetime-edge-drawdown-cards)
 instead. Neither metric uses original instance equity or current balances as a denominator.
 
 Analytics fetches one HTTP snapshot on tab entry and holds it until a filter
@@ -466,39 +490,36 @@ estimate at the displayed timestamp, not a continuously live balance. Home
 continues following the real stream; Trades continues refreshing its selected
 history on stream updates. Neither navigation policy adds balance requests.
 
-### Lifetime real-trade drawdown cards
+### Lifetime Edge drawdown cards
 
-The optional v2 `realDrawdowns` object supplies Current drawdown and Max drawdown:
-`period="All"`, `source="real"`, `closedTrades`, `legacyCapitalEstimate`, and
-`current` / `maximum` objects containing `pct` and nullable `usd`. The cards always
-use **all recorded real closed trades**, including closes older than a year,
-regardless of the selected Analytics source/timeframe. The selected models still
-apply. Use the [existing A/B pairing](#closed-trade-pairing-and-accounting) before
-returns; no Backtest P&L, open positions or mark estimates enter these cards.
+The optional v2 `edgeDrawdowns` object supplies Current drawdown and Max drawdown:
+`period="All"`, `source="edge"`, `walletScope="A"|"all"`, `closedTrades`,
+`legacyCapitalEstimate`, and `current` / `maximum` objects containing `pct` and
+nullable `usd`. Both cards always use the instance's complete seeded-plus-live
+Edge history, including closes older than a year, independently of the visible
+statistics source/timeframe. Selected models still apply. Main uses Wallet 1/A
+only; other instances use their own Edge file and configured wallets. No regular
+trade CSV, another instance's history, open position or price estimate enters the
+cards. Missing/invalid/incomplete Edge capital leaves them unavailable.
 
-Percentages reuse the Edge Monitor compounding above, with the untouched start in
-the high-water mark. If a legacy real close lacks usable position/leverage,
-recorded positive `entry_capital` can supply that model's capital; paired entry
-capital requires both legs. The same portfolio-weight estimate applies and sets
-`legacyCapitalEstimate`. Missing capital is never converted to a zero return.
+Percentages reuse the Edge Monitor compounding above, including untouched starting
+capital in the high-water mark. If a legacy live Edge row lacks position/leverage,
+positive recorded `entry_capital` can provide the same model-weight estimate;
+`legacyCapitalEstimate` identifies this. Missing capital never becomes zero return.
+Each `usd` is the logged net Edge P&L loss from the same interval as its percentage;
+it includes simulated P&L when the interval contains seeded backtest rows. Maximum
+is ranked by percentage and retains that interval's dollars. An equal return peak
+starts a new interval; the first maximum tie is retained. Calculate before timestamp
+coalescing. A net logged dollar gain during a return drawdown yields `usd=null`.
+Both cards show percentage first and corresponding dollars below; the linked chart
+keeps its separate open-trade estimate. Account samples are never fetched just to
+calculate closed equity or drawdowns.
 
-Each `usd` is the actual net closed P&L loss from the **same interval** that
-produced its percentage. Rank maximum by percentage and retain its corresponding
-cash loss, even when a later smaller percentage has a larger dollar loss. An equal
-return peak starts a fresh current interval; the first maximum-percentage tie is
-retained. Compute before timestamp coalescing. Cash uses logged net P&L, including
-logged fees; funding/cash-flow history remains unavailable. A net cash gain inside
-a return drawdown yields `usd=null`, never a fabricated loss. Missing/empty or
-incomplete real history leaves the object null; unavailable dollars show a dash.
-Older backends without this field also show unavailable cards, with no fallback
-from the reference curve or the visible filtered trades.
+### Lifetime real-trade drawdown cards (legacy)
 
-Backtest snapshots read only the selected models' regular closed CSVs for these
-additional cards; their edge trades/chart keep the selected filters. Real snapshots
-reuse the histories already read. This adds no state, mark or balance requests to
-Backtest and no trading, bot imports or production writes. Snapshot refresh rules
-above still apply. Cards show percentage first, actual dollars below, and a shared
-**Real closed trades · Lifetime** label; calculation help identifies capital estimates.
+`realDrawdowns` remains a recognized legacy field for older servers. New responses
+leave it null rather than mislabelling Edge results as real-only trades. New cards
+use only `edgeDrawdowns`; no reference-scale or regular-trade fallback is used.
 
 ## Demand-only perpetual balances
 

@@ -184,7 +184,7 @@ signal EMA lines with histogram bars for M1(300), M2(450) and M3(600), using the
 [closed-candle chart contract](API-v2.md#macd-strategy-charts). Check tap/drag
 inspection, loading/stale states and both themes; Home retains position details.
 Verify the [extended full-screen chart](API-v2.md#live-candle-and-extended-macd):
-pan across 256 slots, keep zoom within 12–256, and check the forming candle and
+pan across 512 slots, keep zoom within 12–512, and check the forming candle and
 provisional MACD update together. Test rollover, refresh failure and offline
 reopening: partial bars must disappear instead of becoming saved final candles.
 Refresh an already-live chart: it must retain the online view while fetching,
@@ -206,7 +206,7 @@ for one wallet, no model/wallet/SL prefixes and no label covering a stop ray.
 Check differing, equal and missing stops, nearby labels and off-screen levels;
 wallet rays must retain their exact prices. Repeat in each model chart.
 Check the default right-side gap between the newest candle and price axis in
-portrait/landscape, at 12/60/256 candle zoom, after Follow latest and on rollover.
+portrait/landscape, at 12/60/256/512 candle zoom, after Follow latest and on rollover.
 Candles, MACD and entries must align, with tap/crosshair/pinch/pan targeting the
 same candle; no fake candles or fewer retained candles may fill the gap.
 Pan historical candles through the default gap toward the actual price axis.
@@ -292,7 +292,14 @@ resuming reconnects once. Check monthly P&L's neutral tiles and colored text in
 Dark mode. Retain an older APK to check v1 login and streaming.
 Test portrait/landscape toggling on the BTC chart and each model chart,
 including manual scaling, inspection, overlay visibility, background/resume and Back.
-Confirm Back restores portrait and the chart window survives rotation.
+With system auto-rotate enabled, rotate a tablet through Home, Strategies,
+Trades, Analytics and Settings; each page must retain its selection and remain
+usable without requiring another unlock. Repeat after closing each fullscreen chart and in
+split screen. New/default strategy charts must show 60 candles in portrait and
+120–512 in landscape as width allows, capped by loaded history; test both opening
+in landscape and using the rotation button. Manual zoom/pan must survive rotation
+and quote updates. Follow latest/reset must restore the width-based default.
+Confirm Back restores the prior orientation setting instead of a portrait lock.
 Use Settings to export and clear [app diagnostics](DIAGNOSTICS.md); verify the
 timestamped ZIP appears in Downloads, a second export preserves the first,
 permission denial on Android 8–9 is handled, and the ZIP contains only the documented fields.

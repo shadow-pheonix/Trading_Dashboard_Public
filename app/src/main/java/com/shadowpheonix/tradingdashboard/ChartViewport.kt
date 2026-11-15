@@ -3,8 +3,13 @@ package com.shadowpheonix.tradingdashboard
 import kotlin.math.floor
 import kotlin.math.ceil
 
-internal const val MAX_VISIBLE_CHART_CANDLES = 256
+internal const val MAX_VISIBLE_CHART_CANDLES = LIVE_CHART_CANDLES
 private const val MAX_FUTURE_CHART_SLOTS = 1_000_000.0 // Finite guard for gestures/restored state, not data retention.
+
+/** Keep portrait spacing; use landscape width after reserving the axis and right gap. */
+internal fun defaultChartCandleCount(widthDp: Int, landscape: Boolean): Double =
+    if (landscape) floor((widthDp.toDouble() - 120.0) / 6.0).coerceIn(120.0, MAX_VISIBLE_CHART_CANDLES.toDouble())
+    else 60.0
 
 /** Index-space window shared by candles and MACD; transforms anchor at the pinch centroid. */
 internal data class ChartViewport(val first: Double, val count: Double) {
@@ -78,14 +83,17 @@ internal fun alignedMacd(times: List<Long>, model: MacdModel?): List<MacdPoint?>
 }
 
 /** Resolve directly against the current timestamps; no post-draw index rebasing. */
-internal data class ChartWindow(val firstTime: Double = Double.NaN, val count: Double = 60.0, val following: Boolean = true) {
-    fun viewport(times: List<Long>): ChartViewport =
-        if (following || !firstTime.isFinite() || times.isEmpty()) ChartViewport.latest(times.size, count)
-        else ChartViewport((firstTime-times.first())/MACD_INTERVAL, count).bounded(times.size)
+internal data class ChartWindow(val firstTime: Double = Double.NaN, val count: Double = 60.0,
+                               val following: Boolean = true, val automaticCount: Boolean = true) {
+    fun viewport(times: List<Long>, defaultCount: Double = count): ChartViewport {
+        val shown = if (automaticCount) defaultCount else count
+        return if (following || !firstTime.isFinite() || times.isEmpty()) ChartViewport.latest(times.size, shown)
+        else ChartViewport((firstTime-times.first())/MACD_INTERVAL, shown).bounded(times.size)
+    }
 
     fun moved(next: ChartViewport, times: List<Long>, follow: Boolean = false): ChartWindow {
         val bounded = next.bounded(times.size)
-        return ChartWindow((times.firstOrNull() ?: 0L) + bounded.first*MACD_INTERVAL, bounded.count, follow)
+        return ChartWindow((times.firstOrNull() ?: 0L) + bounded.first*MACD_INTERVAL, bounded.count, follow, automaticCount = false)
     }
 }
 

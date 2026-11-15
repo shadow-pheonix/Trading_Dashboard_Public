@@ -175,8 +175,11 @@ class DashboardApi {
     suspend fun macd(connection: Connection): MacdSnapshot {
         return try { fetchMacd(liveChartRequest(connection), allowLegacy = true) }
         catch (_: LegacyChartEndpoint) {
-            try { fetchMacd(chartRequest(connection), allowLegacy = true) }
-            catch (_: LegacyChartEndpoint) { fetchMacd(macdRequest(connection)) }
+            try { fetchMacd(liveChartRequest(connection, history = 256), allowLegacy = true) }
+            catch (_: LegacyChartEndpoint) {
+                try { fetchMacd(chartRequest(connection), allowLegacy = true) }
+                catch (_: LegacyChartEndpoint) { fetchMacd(macdRequest(connection)) }
+            }
         }
     }
 
@@ -341,8 +344,9 @@ fun chartRequest(connection: Connection): Request = macdRequest(connection).let 
     it.newBuilder().url(it.url.newBuilder().setQueryParameter("view", "chart").build()).build()
 }
 
-fun liveChartRequest(connection: Connection): Request = chartRequest(connection).let {
-    it.newBuilder().url(it.url.newBuilder().addQueryParameter("history", "256").addQueryParameter("live", "1").build()).build()
+fun liveChartRequest(connection: Connection, history: Int = LIVE_CHART_CANDLES): Request = chartRequest(connection).let {
+    require(history in setOf(256, LIVE_CHART_CANDLES))
+    it.newBuilder().url(it.url.newBuilder().addQueryParameter("history", history.toString()).addQueryParameter("live", "1").build()).build()
 }
 
 fun validateBalances(value: BalanceSnapshot) {

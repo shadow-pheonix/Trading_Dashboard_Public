@@ -3,7 +3,7 @@ import asyncio
 import copy
 import time
 
-from .indicators import DISPLAY, INTERVAL, fetch_candles
+from .indicators import DISPLAY, INTERVAL, LIVE_CHART_WINDOW, fetch_candles
 from .validation import InvalidData, integer, number
 
 
@@ -65,7 +65,7 @@ class CandleSeries:
 
 
 class LiveCandleSeries:
-    """255 final candles plus a separately identified partial candle; shared demand-only cache."""
+    """511 final candles plus a separately identified partial candle; shared demand-only cache."""
     def __init__(self, clock=lambda: int(time.time() * 1000), fetch=fetch_candles):
         self.clock, self.fetch = clock, fetch
         self.candles, self.forming, self.sampled_at = [], None, None
@@ -79,20 +79,20 @@ class LiveCandleSeries:
         if not fresh and now >= self.retry_at and (self.task is None or self.task.done()):
             self.task = asyncio.create_task(self._refresh(current))
         if self.sampled_at is not None and self.sampled_at > now:
-            return dict(chartWindow=256, candles=[], candleStatus='loading', candleSampledAt=None, formingCandle=None)
+            return dict(chartWindow=LIVE_CHART_WINDOW, candles=[], candleStatus='loading', candleSampledAt=None, formingCandle=None)
         refreshing = self.task is not None and not self.task.done()
         # Never relabel a partial sample as a final candle after the boundary.
         forming = self.forming if fresh else None
         status = ('ok' if fresh else 'stale' if self.candles else
                   'loading' if refreshing else 'failed' if self.failed else 'loading')
-        return dict(chartWindow=256, candles=copy.deepcopy(self.candles), candleStatus=status,
+        return dict(chartWindow=LIVE_CHART_WINDOW, candles=copy.deepcopy(self.candles), candleStatus=status,
                     candleSampledAt=self.sampled_at, formingCandle=copy.deepcopy(forming))
 
     async def _refresh(self, current):
         try:
-            start = current - 255 * INTERVAL
+            start = current - (LIVE_CHART_WINDOW - 1) * INTERVAL
             rows = await asyncio.to_thread(self.fetch, start, current + INTERVAL - 1)
-            candles = ohlc_page(rows, start, current, count=256)
+            candles = ohlc_page(rows, start, current, count=LIVE_CHART_WINDOW)
             sampled = self.clock()
             if sampled // INTERVAL * INTERVAL != current:
                 self.retry_at = 0

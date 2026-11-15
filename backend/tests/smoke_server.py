@@ -46,12 +46,12 @@ class SyntheticBalances(Balances):
 
 
 class SyntheticIndicators:
-    async def chart(self, instance, live=False):
+    async def chart(self, instance, live=False, history=512):
         value = await self.get(instance)
         if live:
             current=value['generatedAt']//INTERVAL*INTERVAL
-            value.update(chartWindow=256,candleStatus='ok',candleSampledAt=value['generatedAt'],
-                candles=[dict(timestamp=current-i*INTERVAL,open=80000,high=80100,low=79900,close=80000) for i in range(255,0,-1)],
+            value.update(chartWindow=history,candleStatus='ok',candleSampledAt=value['generatedAt'],
+                candles=[dict(timestamp=current-i*INTERVAL,open=80000,high=80100,low=79900,close=80000) for i in range(history-1,0,-1)],
                 formingCandle=dict(timestamp=current,open=80000,high=80100,low=79900,close=80050))
             # Finalized price differs from the bot sample; full MACD must still
             # survive this realistic case through the real authenticated HTTP path.

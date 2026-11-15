@@ -152,13 +152,15 @@ shows or hides every model’s overlays together without changing the viewport.
 Opening either the BTC chart or a model hides the app header, navigation and system bars. The chart workspace
 uses the full plot height for price in BTC mode; model mode uses a shared
 timeline with 70% of its plot height for price and 30% for MACD,
-excluding top controls and the shared time axis. It starts with the latest 60
-candles, zooms between 12 and 256 and pans throughout the retained history.
+excluding top controls and the shared time axis. Portrait starts with the latest
+60 candles. Landscape defaults to 120–512, using about 6 dp per candle after
+reserving 120 dp for the price axis and right gap, capped by available history.
+All modes zoom between 12 and 512 and pan throughout the retained history.
 A stable 56 dp right inset (capped at 20% of plot width) leaves space between the
 latest candle and price axis in both orientations. It sets default candle spacing,
 while the entire plot up to the price axis stays drawable and selectable. Panning
 into the gap reveals real candles, MACD and entry markers there; automatic scales
-include those visible samples. The stored 12–256 zoom setting stays unchanged.
+include those visible samples. The stored 12–512 zoom setting stays unchanged.
 No clipping, selection clamp or false time boundary is placed at the inset edge,
 and no synthetic candles fill the gap. Stop/quote rays extend to the actual axis.
 Horizontal dragging may move past the latest candle into empty future time. The
@@ -166,20 +168,23 @@ axis projects 15-minute timestamps; candles, MACD and inspection have no invente
 future samples. An entirely future window keeps a recent-data vertical scale,
 without treating the deliberate empty area as a load failure. Manual time windows
 stay anchored across quote updates and rollover; Follow latest restores the
-60-slot default view and right inset. Zoom buttons use the centre in future
+orientation/width-based default view and right inset. Zoom buttons use the centre in future
 windows and the right edge only when exactly following the latest data.
 Pinch zoom anchors at the gesture centroid. Tap or hold and drag to inspect;
 the crosshair button switches inspection back to panning. Both panels select
 the same timestamp; missing MACD points stay empty. Manual horizontal windows
 are anchored by timestamp in the first render after a data change. Follow latest
 resumes live scrolling; double-tapping the plot resets both axes and inspection.
-All full-screen charts open in portrait. The rotation button toggles landscape
-and portrait; leaving the chart restores portrait. The landscape layout compacts
-OHLC and status text while retaining the same candle history, model pane ratio,
-viewport, manual scales, inspection and overlay state across rotation. Android
-large-screen/windowing policy can override requested orientation.
+The dashboard follows the device's orientation preference and supports resizable
+tablet windows. Strategy charts inherit the current orientation; their rotation
+button explicitly toggles landscape and portrait. Leaving a fullscreen chart
+restores the prior orientation setting, including automatic rotation. Landscape
+compacts OHLC and status text while retaining candle history, model pane ratio,
+manual scales, inspection and overlays. Untouched default time windows adapt to
+the new width; manual zoom and pan remain unchanged until Follow latest/reset.
+Android large-screen/windowing policy can override requested orientation.
 Back returns to Strategies. Dragging the bottom time axis adjusts horizontal
-zoom within the same 12–256 limits; its double-tap resumes following latest.
+zoom within the same 12–512 limits; its double-tap resumes following latest.
 
 Automatic price scale fits only visible candles, excluding entry/stop levels.
 Distant stops stay outside the view instead of compressing the candles or
@@ -200,7 +205,7 @@ it does not replace it with the closed-only disk copy. A new foreground session
 or changed connection/credential still loads the safe disk cache first.
 Partial responses keep the other complete series visibly stale; loading and
 failures do not replace it with invented values. Older servers returning 400 for
-the extended view fall back to the legacy chart, then to MACD-only requests if
+the 512 view fall back to the 256 live view, then the legacy chart and MACD-only requests if
 that is also unsupported. Old applications retain their original response shape.
 The original foreground/lock/cancellation rules apply to the full-screen view.
 Phone gesture handling, appearance and system-bar restoration require device
@@ -209,16 +214,18 @@ verification in addition to the viewport, alignment and 70/30 geometry tests.
 ### Live candle and extended MACD
 
 Current apps request the exact authenticated query
-`GET /v2/dashboard?view=chart&history=256&live=1`. It returns `chartWindow=256`,
-255 final `candles` and a separate `formingCandle`: 256 total slots, about 64
-hours of 15-minute history. Visible zoom spans 12–256 candles; panning reaches
+`GET /v2/dashboard?view=chart&history=512&live=1`. It returns `chartWindow=512`,
+511 final `candles` and a separate `formingCandle`: 512 total slots, about 128
+hours of 15-minute history. Visible zoom spans 12–512 candles; panning reaches
 all retained history. The shared demand-only public spot cache refreshes on a
 five-second cadence and at candle rollover. Requests await its bounded in-flight refresh; cancellation
 by one viewer does not cancel other viewers' data. Failures use the existing
-30-second cooldown. There is no idle collector or bot write.
+30-second cooldown. The exact `history=256&live=1` query retains its 255 closed
+candles/points plus one forming sample for older APKs; both views share the same
+512-slot OHLC cache. There is no idle collector or bot write.
 
 `models` retains the exact 96 captured closed MACD points used by strategy cards.
-`chartModels` supplies 255 closed chart points; `formingModels` supplies one
+`chartModels` supplies 511 closed chart points; `formingModels` supplies one
 provisional point per model at the partial candle's timestamp. `chartMacdStatus`
 is `ok`, `stale`, `loading` or `failed`. The full-screen chart joins both panels
 by candle time. A missing live MACD leaves a gap instead of a fabricated value.
@@ -239,7 +246,8 @@ Partial data expires after 15 seconds or immediately at a candle rollover,
 refresh failure, cached-only view or background return without a fresh sample.
 Its time slot remains empty when hidden, keeping the horizontal window stable;
 no OHLC, MACD or entry arrow is invented for that slot.
-It is excluded from the disk cache, so a partial bar never becomes a saved final
+The private per-connection disk cache is bounded to 1 MiB for the extended series.
+The partial sample is excluded, so it never becomes a saved final
 candle. Closed price/MACD histories remain independently available through partial
 refreshes; missing matching timestamps leave gaps. Trade markers can appear on
 the live entry candle as soon as its fresh price data is available.

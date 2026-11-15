@@ -50,8 +50,8 @@ import kotlin.math.floor
 import kotlin.math.exp
 
 private val chartWindowSaver = listSaver<ChartWindow, Any>(
-    save = { listOf(it.firstTime, it.count, it.following) },
-    restore = { ChartWindow(it[0] as Double, it[1] as Double, it[2] as Boolean) })
+    save = { listOf(it.firstTime, it.count, it.following, it.automaticCount) },
+    restore = { ChartWindow(it[0] as Double, it[1] as Double, it[2] as Boolean, it.getOrNull(3) as? Boolean ?: false) })
 private val chartScaleSaver = listSaver<ChartScale, Double>(
     save = { listOf(it.low, it.high) }, restore = { ChartScale(it[0], it[1]) })
 
@@ -59,8 +59,11 @@ private val chartScaleSaver = listSaver<ChartScale, Double>(
 internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: () -> Unit, onRefresh: () -> Unit) {
     BackHandler(onBack = onBack)
     val activity = LocalActivity.current
-    var landscape by rememberSaveable(state.active?.id, modelId) { mutableStateOf(false) }
-    val wide = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val configuration = LocalConfiguration.current
+    val wide = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val previousOrientation = rememberSaveable { activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+    var landscape by rememberSaveable(state.active?.id, modelId) { mutableStateOf(wide) }
+    val defaultCount = defaultChartCandleCount(configuration.screenWidthDp, wide)
     LaunchedEffect(activity, landscape) {
         activity?.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
@@ -70,7 +73,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
         controller?.hide(WindowInsetsCompat.Type.systemBars())
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
-            if (activity?.isChangingConfigurations == false) activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            if (activity?.isChangingConfigurations == false) activity.requestedOrientation = previousOrientation
         }
     }
     val showMacd = modelId != BTC_CHART_ID
@@ -91,10 +94,10 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
     var macdScale by rememberSaveable(scope, stateSaver = chartScaleSaver) { mutableStateOf(ChartScale()) }
     var selectedTime by rememberSaveable(scope) { mutableStateOf<Long?>(null) }
     var inspecting by rememberSaveable(scope) { mutableStateOf(false) }
-    val viewport = window.viewport(times)
-    LaunchedEffect(scope, landscape) {
+    val viewport = window.viewport(times, defaultCount)
+    LaunchedEffect(scope, wide) {
         AppDiagnostics.record(DiagnosticEvent.ChartOpened, mapOf(DiagnosticField.Scope to logScope, DiagnosticField.Model to diagnosticModel(modelId),
-            DiagnosticField.Landscape to if (landscape) 1L else 0L))
+            DiagnosticField.Landscape to if (wide) 1L else 0L))
     }
     LaunchedEffect(scope, candles.size, aligned.count { it != null }, live, state.macdCached, state.macdError != null, times.firstOrNull(), times.lastOrNull()) {
         AppDiagnostics.record(DiagnosticEvent.ChartData, mapOf(DiagnosticField.Scope to logScope, DiagnosticField.Candles to candles.size.toLong(),
@@ -128,8 +131,8 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             if (wide) Text(listOf("O" to candle?.open, "H" to candle?.high, "L" to candle?.low, "C" to candle?.close)
                 .joinToString("  ") { (label, price) -> "$label ${price?.let { chartNumber(it, 2) } ?: "—"}" },
                 modifier = Modifier.weight(1.8f).padding(horizontal = 8.dp), fontSize = 10.sp, maxLines = 2)
-            IconButton(onClick = { landscape = !landscape }) {
-                Icon(Icons.Outlined.ScreenRotation, if (landscape) "Switch to portrait" else "Switch to landscape")
+            IconButton(onClick = { landscape = !wide }) {
+                Icon(Icons.Outlined.ScreenRotation, if (wide) "Switch to portrait" else "Switch to landscape")
             }
             if (!showMacd) IconToggleButton(checked = showOverlays, onCheckedChange = { showOverlays = it }) {
                 Icon(if (showOverlays) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
@@ -150,7 +153,7 @@ internal fun ModelChartScreen(state: DashboardState, modelId: String, onBack: ()
             }
         }
         val priceStatus = if (live) "Live candle · Forming" else if (candlesAreStale(value, state.now)) "Candles stale / unavailable" else "Closed spot candles"
-        val macdStatus = if (value?.chartWindow == 256) {
+        val macdStatus = if (value != null && value.chartWindow > 96) {
             if (value.chartMacdStatus == "loading") "MACD loading…"
             else if (live && value.formingModels.isNotEmpty()) "MACD preview · Provisional"
             else if (value.chartMacdStatus == "failed") "Live MACD unavailable" else "MACD history · Live unavailable"

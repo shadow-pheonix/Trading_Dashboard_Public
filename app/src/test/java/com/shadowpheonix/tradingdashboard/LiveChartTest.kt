@@ -9,34 +9,44 @@ class LiveChartTest {
     private val now=1800000000000L
     private val current=now/MACD_INTERVAL*MACD_INTERVAL
     private val connection=Connection("main","Main","https://dashboard.example.test","x".repeat(43))
-    private fun value(): MacdSnapshot {
-        val candles=(255 downTo 1).map { PriceCandle(current-it*MACD_INTERVAL,100.0,110.0,90.0,100.0) }
+    private fun value(window: Int = 512): MacdSnapshot {
+        val candles=(window-1 downTo 1).map { PriceCandle(current-it*MACD_INTERVAL,100.0,110.0,90.0,100.0) }
         val history=(1..3).map { n -> MacdModel("M$n",(n+1)*150,(n+1)*450,(n+1)*150,
             candles.map { MacdPoint(it.timestamp,0.0,0.0,0.0) }) }
         return MacdSnapshot(2,"Main",now,"bot_spot_closed","BTCUSDT",15,"ok",now,
             history.map { it.copy(points=it.points.takeLast(96)) },candles,"ok",now,
-            chartWindow=256,formingCandle=PriceCandle(current,100.0,112.0,90.0,111.0),chartModels=history,
+            chartWindow=window,formingCandle=PriceCandle(current,100.0,112.0,90.0,111.0),chartModels=history,
             formingModels=history.map { it.copy(points=listOf(MacdPoint(current,1.0,0.5,0.5))) },chartMacdStatus="ok")
+    }
+
+    @Test fun legacy256PayloadsRemainValidAndRequestFallbackKeepsLiveData() {
+        val old = value(window = 256)
+        validateMacd(old)
+        validateMacd(old.withoutLivePreview())
+        assertEquals(256, chartCandles(old, now).size)
+        assertEquals(256, chartModel(old, "M1", now)!!.points.size)
+        assertEquals("view=chart&history=256&live=1", liveChartRequest(connection, history = 256).url.encodedQuery)
+        assertThrows(IllegalArgumentException::class.java) { liveChartRequest(connection, history = 513) }
     }
 
     @Test fun fullHistoryIncludesOneExplicitPartialAndBothPanelsShareItsTime() {
         val v=value();validateMacd(v)
         assertEquals(v,dashboardJson.decodeFromString<MacdSnapshot>(dashboardJson.encodeToString(MacdSnapshot.serializer(),v)))
-        assertEquals(256,chartCandles(v,now).size)
+        assertEquals(512,chartCandles(v,now).size)
         assertEquals(current,chartCandles(v,now).last().timestamp)
-        assertEquals(256,chartModel(v,"M1",now)!!.points.size)
+        assertEquals(512,chartModel(v,"M1",now)!!.points.size)
         assertEquals(current,chartModel(v,"M1",now)!!.points.last().timestamp)
         val times=chartCandles(v,now).map { it.timestamp }
         for (id in listOf("M1","M2","M3")) {
             val aligned=alignedMacd(times,chartModel(v,id,now))
-            assertEquals(256,aligned.size)
+            assertEquals(512,aligned.size)
             assertTrue(aligned.all { it!=null })
             assertEquals(times,aligned.map { it!!.timestamp })
             // Panning to the oldest window must have MACD too, not just the saved 96-point tail.
             assertTrue(aligned.take(96).all { it!=null })
         }
         assertEquals(96,v.models.first().points.size) // Existing strategy-card values stay captured.
-        assertEquals("view=chart&history=256&live=1",liveChartRequest(connection).url.encodedQuery)
+        assertEquals("view=chart&history=512&live=1",liveChartRequest(connection).url.encodedQuery)
         assertEquals("Bearer ${connection.accessKey}",liveChartRequest(connection).header("Authorization"))
     }
 
@@ -55,25 +65,25 @@ class LiveChartTest {
     @Test fun staleOfflineFailedOrRolledOverSamplesNeverMasqueradeAsFinalCandles() {
         val v=value()
         assertFalse(formingIsFresh(v,now+15_001));assertFalse(formingIsFresh(v,now-1))
-        assertEquals(255,chartCandles(v,now,cached=true).size)
-        assertEquals(255,chartCandles(v,now,failed=true).size)
-        assertEquals(255,chartCandles(v,current+MACD_INTERVAL).size)
-        assertEquals(255,chartModel(v,"M1",now,cached=true)!!.points.size)
+        assertEquals(511,chartCandles(v,now,cached=true).size)
+        assertEquals(511,chartCandles(v,now,failed=true).size)
+        assertEquals(511,chartCandles(v,current+MACD_INTERVAL).size)
+        assertEquals(511,chartModel(v,"M1",now,cached=true)!!.points.size)
         val unavailable=v.copy(chartModels=emptyList(),formingModels=emptyList(),chartMacdStatus="failed")
         validateMacd(unavailable)
         assertEquals(96,chartModel(unavailable,"M1",now)!!.points.size)
     }
 
-    @Test fun historyPansAcrossAll256AndBothZoomMethodsStayWithin12To256() {
-        assertEquals(ChartViewport(196.0,60.0),ChartViewport.latest(256))
-        assertEquals(ChartViewport(0.0,256.0),ChartViewport.latest(256,1000.0))
-        val max=ChartViewport.latest(256).zoomControl(256,1e-10)
-        assertEquals(256.0,max.count,0.0)
-        assertEquals(12.0,max.zoomControl(256,1e10).count,0.0)
-        assertEquals(0.0,max.transform(256,1.0,100.0,0.5).first,0.0)
-        assertEquals(25600.0,max.transform(256,1.0,-100.0,0.5).first,0.0)
-        assertEquals(255,ChartViewport.latest(256).indexAt(1.0,256))
-        assertEquals(195.0,ChartWindow().viewport((1..255).map {current+it*MACD_INTERVAL}).first,0.0)
+    @Test fun historyPansAcrossAll512AndBothZoomMethodsStayWithin12To512() {
+        assertEquals(ChartViewport(452.0,60.0),ChartViewport.latest(512))
+        assertEquals(ChartViewport(0.0,512.0),ChartViewport.latest(512,1000.0))
+        val max=ChartViewport.latest(512).zoomControl(512,1e-10)
+        assertEquals(512.0,max.count,0.0)
+        assertEquals(12.0,max.zoomControl(512,1e10).count,0.0)
+        assertEquals(0.0,max.transform(512,1.0,100.0,0.5).first,0.0)
+        assertEquals(51200.0,max.transform(512,1.0,-100.0,0.5).first,0.0)
+        assertEquals(511,ChartViewport.latest(512).indexAt(1.0,512))
+        assertEquals(451.0,ChartWindow().viewport((1..511).map {current+it*MACD_INTERVAL}).first,0.0)
     }
 
     @Test fun diskCacheStoresClosedHistoryOnlyAndDoesNotRetainPartialMacd()=runBlocking {
@@ -82,9 +92,49 @@ class LiveChartTest {
             val cache=MacdCacheStore(dir) { now }
             cache.save(connection,value())
             val saved=cache.load(connection)!!;validateMacd(saved)
-            assertEquals(255,saved.candles.size);assertEquals(255,saved.chartModels.first().points.size)
+            assertEquals(511,saved.candles.size);assertEquals(511,saved.chartModels.first().points.size)
             assertNull(saved.formingCandle);assertTrue(saved.formingModels.isEmpty());assertEquals("stale",saved.candleStatus)
         } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun cacheRetains512HistoryWithFullPrecisionValuesAboveTheOldByteLimit()=runBlocking {
+        val dir=Files.createTempDirectory("large-live-chart-cache").toFile()
+        try {
+            val original=value()
+            val models=original.chartModels.map { model -> model.copy(points=model.points.map {
+                val macd=-12345.123456789012; val signal=-8765.234567890123
+                MacdPoint(it.timestamp,macd,signal,macd-signal)
+            }) }
+            val v=original.copy(chartModels=models,models=models.map { it.copy(points=it.points.takeLast(96)) },
+                candles=original.candles.map { it.copy(open=80000.12345678901,high=81000.12345678901,
+                    low=79000.12345678901,close=80500.12345678901) })
+            val cache=MacdCacheStore(dir) { now }
+            cache.save(connection,v)
+            assertTrue(dir.listFiles()!!.single().length()>262144)
+            val saved=cache.load(connection)!!
+            validateMacd(saved)
+            assertEquals(v.withoutTradeAnnotations().withoutLivePreview(),saved)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun changingWindowSizeCannotMixCachedMacdWithAnotherHistoryLength()=runBlocking {
+        for ((oldWindow,newWindow) in listOf(256 to 512,512 to 256)) {
+            val saved=value(oldWindow).withoutLivePreview()
+            val incoming=value(newWindow).copy(chartModels=emptyList(),formingModels=emptyList(),chartMacdStatus="loading")
+            var result:MacdSnapshot?=null
+            val cache=object:MacdCache {
+                override suspend fun load(connection:Connection)=saved
+                override suspend fun save(connection:Connection,value:MacdSnapshot){}
+                override suspend fun forget(id:String){}
+            }
+            val session=MacdSession(this,{incoming},{result=it},{fail(it)},pause={awaitCancellation()},cache=cache)
+            try {
+                session.select(connection,true);repeat(20){yield()}
+                validateMacd(result!!)
+                assertEquals(newWindow,result!!.chartWindow)
+                assertTrue(result!!.chartModels.isEmpty())
+            } finally {session.close()}
+        }
     }
 
     @Test fun partialPriceRefreshRetainsCompleteMacdHistoryWithAnHonestGapAtTheNewCandle()=runBlocking {
@@ -141,11 +191,11 @@ class LiveChartTest {
             state=state.withMacdSnapshot(response,receivedAt=sampledAt+50)
             val candles=chartCandles(state.macd,state.now,state.macdCached,state.macdError!=null)
             val stops=visibleTradeAnnotations(state.macd,"M1",state.now,state.macdCached,state.macdError!=null)
-            assertEquals("Fresh response must not lose the forming candle before the next tick",256,candles.size)
+            assertEquals("Fresh response must not lose the forming candle before the next tick",512,candles.size)
             assertEquals(listOf(trade),stops)
-            assertEquals(256,chartModel(state.macd,"M1",state.now)!!.points.size)
+            assertEquals(512,chartModel(state.macd,"M1",state.now)!!.points.size)
             assertEquals(range,priceRange(candles.takeLast(60),stops.mapNotNull { it.stopPrice }))
-            assertEquals(ChartViewport.latest(256),window.viewport(candles.map {it.timestamp}))
+            assertEquals(ChartViewport.latest(512),window.viewport(candles.map {it.timestamp}))
             assertEquals(sampledAt+50,state.now)
         }
     }
@@ -179,13 +229,13 @@ class LiveChartTest {
         validateMacd(response)
         val received=DashboardState(macd=old,now=boundary-50).withMacdSnapshot(response,receivedAt=boundary+200)
         val times=chartCandles(received.macd,received.now).map { it.timestamp }
-        assertEquals(256,times.size);assertEquals(boundary,times.last())
+        assertEquals(512,times.size);assertEquals(boundary,times.last())
         assertEquals(times,chartModel(received.macd,"M1",received.now)!!.points.map { it.timestamp })
         val trades=visibleTradeAnnotations(received.macd,"M1",received.now,false,false)
         assertEquals(listOf(trade),trades)
-        assertEquals(255,entryChartMarkers(trades,times).single().index)
+        assertEquals(511,entryChartMarkers(trades,times).single().index)
         val first=old.candles.first().timestamp
-        assertEquals(ChartViewport.latest(256),ChartWindow().viewport(times))
+        assertEquals(ChartViewport.latest(512),ChartWindow().viewport(times))
         val oldTimes=chartTimes(old,chartCandles(old,now),chartModel(old,"M1",now))
         val panned=ChartWindow().moved(ChartViewport(20.0,60.0),oldTimes).viewport(times)
         assertEquals(ChartViewport(19.0,60.0),panned)
@@ -208,13 +258,13 @@ class LiveChartTest {
             onCached={state=state.copy(macd=it,macdCached=true)})
         try {
             session.select(connection,true);repeat(20){yield()}
-            assertFalse(state.macdCached);assertEquals(256,chartCandles(state.macd,now).size)
+            assertFalse(state.macdCached);assertEquals(512,chartCandles(state.macd,now).size)
             session.select(connection,true,refresh=true);repeat(20){yield()}
             assertEquals(2,requests)
             assertFalse("Refresh must retain the accepted live snapshot while fetching",state.macdCached)
             assertEquals(1,loads)
             assertEquals(online,state.macd)
-            assertEquals(256,chartCandles(state.macd,now,state.macdCached).size)
+            assertEquals(512,chartCandles(state.macd,now,state.macdCached).size)
             assertEquals(listOf(trade),visibleTradeAnnotations(state.macd,"M1",now,state.macdCached,false))
             gate.complete(Unit);repeat(20){yield()}
             session.close();session.select(connection,true);repeat(20){yield()}
@@ -230,8 +280,8 @@ class LiveChartTest {
             val candles=chartCandles(hidden,expired)
             val model=chartModel(hidden,"M1",expired)
             val times=chartTimes(hidden,candles,model)
-            assertEquals(live,times);assertEquals(256,times.size)
-            assertEquals(255,candles.size)
+            assertEquals(live,times);assertEquals(512,times.size)
+            assertEquals(511,candles.size)
             assertNull(alignedMacd(times,model).last())
             assertEquals(ChartWindow().viewport(live),ChartWindow().viewport(times))
         }

@@ -2,11 +2,13 @@ package com.shadowpheonix.tradingdashboard
 
 import kotlin.math.abs
 
+internal const val LIVE_CHART_CANDLES = 512
+
 internal fun validMacdPoint(p: MacdPoint) = listOf(p.macd, p.signal, p.histogram).all { it.isFinite() && abs(it) <= 1e20 } &&
     abs(p.histogram - (p.macd - p.signal)) < 0.000001
 
 internal fun validateLiveChart(value: MacdSnapshot) {
-    require(value.chartWindow in setOf(96, 256))
+    require(value.chartWindow in setOf(96, 256, LIVE_CHART_CANDLES))
     if (value.chartWindow == 96) {
         require(value.formingCandle == null && value.chartModels.isEmpty() && value.formingModels.isEmpty() && value.chartMacdStatus == null)
         return
@@ -29,7 +31,7 @@ internal fun validateLiveChart(value: MacdSnapshot) {
     value.chartModels.forEachIndexed { i,m ->
         val fast = (i+2)*150
         require(m.fastPeriod == fast && m.slowPeriod == fast*3 && m.signalPeriod == fast &&
-            m.points.size == 255 && m.points.all(::validMacdPoint))
+            m.points.size == value.chartWindow - 1 && m.points.all(::validMacdPoint))
         m.points.forEachIndexed { index,p -> require(p.timestamp > 0 && p.timestamp % MACD_INTERVAL == 0L &&
             p.timestamp+MACD_INTERVAL <= value.generatedAt &&
             (index == 0 || p.timestamp-m.points[index-1].timestamp == MACD_INTERVAL)) }
@@ -63,10 +65,10 @@ internal fun chartModel(value: MacdSnapshot?, id: String, now: Long, cached: Boo
 
 /** Keep an empty forming slot when its sample is hidden; never invent OHLC or MACD. */
 internal fun chartTimes(value: MacdSnapshot?, candles: List<PriceCandle>, model: MacdModel?): List<Long> =
-    if (value?.chartWindow == 256 && value.candles.isNotEmpty())
+    if (value != null && value.chartWindow > 96 && value.candles.isNotEmpty())
         value.candles.map { it.timestamp } + (value.candles.last().timestamp+MACD_INTERVAL)
     else candles.map { it.timestamp }.ifEmpty { model?.points?.map { it.timestamp }.orEmpty() }
 
 internal fun MacdSnapshot.withoutLivePreview() = copy(formingCandle=null, formingModels=emptyList(),
-    candleStatus=if (chartWindow == 256 && candleStatus == "ok") "stale" else candleStatus,
+    candleStatus=if (chartWindow > 96 && candleStatus == "ok") "stale" else candleStatus,
     chartMacdStatus=if (chartMacdStatus == "ok") "stale" else chartMacdStatus)

@@ -17,7 +17,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 internal fun EquityChartScreen(snapshot: DashboardSnapshot, view: ChartView, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     val activity = LocalActivity.current
-    val previousOrientation = rememberSaveable { activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+    val previousOrientation = rememberSaveable { activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     LaunchedEffect(activity) { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
     DisposableEffect(activity) {
         val controller = activity?.window?.let { WindowCompat.getInsetsController(it, it.decorView) }

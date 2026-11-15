@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 from dashboard_backend.candles import LiveCandleSeries
 from dashboard_backend.chart_indicators import extend_chart
-from dashboard_backend.indicators import Indicators, INTERVAL, SPANS, LIVE_CHART_QUERY, chart_time
+from dashboard_backend.indicators import Indicators, INTERVAL, SPANS, LIVE_CHART_QUERY, LEGACY_LIVE_CHART_QUERY, chart_time
 import test_backend as fixtures
 
 NOW = 1800000000000
@@ -16,7 +16,7 @@ CURRENT = NOW // INTERVAL * INTERVAL
 
 def rows(start):
     return [[start+i*INTERVAL,'80000','80100','79900','80050','1',
-             start+(i+1)*INTERVAL-1,'1',1,'1','1','0'] for i in range(256)]
+             start+(i+1)*INTERVAL-1,'1',1,'1','1','0'] for i in range(512)]
 
 
 def reference(corrections=None):
@@ -34,14 +34,32 @@ def reference(corrections=None):
             if i: signal += (m-signal)*2/(sig+1)
             points.append(dict(timestamp=stamp,macd=m,signal=signal,histogram=m-signal))
         models.append(dict(id=key,fastPeriod=fast,slowPeriod=slow,signalPeriod=sig,points=points))
-    candles = [dict(timestamp=t,open=c,high=c+1,low=c-1,close=c) for t,c in zip(stamps[-256:],closes[-256:])]
+    candles = [dict(timestamp=t,open=c,high=c+1,low=c-1,close=c) for t,c in zip(stamps[-512:],closes[-512:])]
     value = dict(models=[dict(m,points=copy.deepcopy(m['points'][-97:-1])) for m in models],
                  candles=candles[:-1],formingCandle=candles[-1],candleStatus='ok',status='ok')
     return value,models
 
 
 class LiveChartsCase(unittest.IsolatedAsyncioTestCase):
-    async def test_shared_256_window_updates_partial_without_idle_polling(self):
+    async def test_legacy_and_512_views_share_one_fetch_and_keep_their_exact_windows(self):
+        calls=[]
+        def fetch(start,end):
+            calls.append((start,end))
+            return rows(start)
+        service=Indicators(lambda:NOW,candle_fetch=fetch)
+        service.get=AsyncMock(side_effect=lambda *_: dict(status='loading',models=[]))
+        full=await service.chart(SimpleNamespace(label='Main'),live=True)
+        legacy=await service.chart(SimpleNamespace(label='Main'),live=True,history=256)
+        self.assertEqual(full['chartWindow'],512)
+        self.assertEqual(len(full['candles']),511)
+        self.assertEqual(legacy['chartWindow'],256)
+        self.assertEqual(legacy['candles'],full['candles'][-255:])
+        self.assertEqual(legacy['formingCandle'],full['formingCandle'])
+        self.assertEqual(len(calls),1)
+        full['candles'][0]['close']=1
+        self.assertNotEqual(service.live_candles.get()['candles'][0]['close'],1)
+
+    async def test_shared_512_window_updates_partial_without_idle_polling(self):
         now,calls=[NOW],[]
         def fetch(start,end):calls.append((start,end));return rows(start)
         service=LiveCandleSeries(lambda:now[0],fetch)
@@ -49,9 +67,9 @@ class LiveChartsCase(unittest.IsolatedAsyncioTestCase):
         service.get();task=service.task;service.get();self.assertIs(task,service.task)
         await task
         value=service.get()
-        self.assertEqual(len(value['candles']),255)
+        self.assertEqual(len(value['candles']),511)
         self.assertEqual(value['formingCandle']['timestamp'],CURRENT)
-        self.assertEqual(calls,[(CURRENT-255*INTERVAL,CURRENT+INTERVAL-1)])
+        self.assertEqual(calls,[(CURRENT-511*INTERVAL,CURRENT+INTERVAL-1)])
         value['formingCandle']['close']=1
         self.assertEqual(service.get()['formingCandle']['close'],80050)
         now[0]+=5000;await asyncio.sleep(0);self.assertEqual(len(calls),1)
@@ -94,7 +112,7 @@ class LiveChartsCase(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):await request
         self.assertFalse(task.cancelled());gate.set();await task
         value=await service.chart(SimpleNamespace(label='Main'),live=True)
-        self.assertEqual(len(value['candles']),255)
+        self.assertEqual(len(value['candles']),511)
         self.assertEqual(value['chartMacdStatus'],'loading')
         self.assertIsNotNone(value['formingCandle'])
 
@@ -104,9 +122,9 @@ class LiveChartsCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value['chartMacdStatus'],'ok')
         self.assertEqual(value['models'],original)
         for actual,truth in zip(value['chartModels'],expected):
-            self.assertEqual(len(actual['points']),255)
+            self.assertEqual(len(actual['points']),511)
             self.assertEqual(actual['points'][-96:],original[expected.index(truth)]['points'])
-            for point,correct in zip(actual['points'],truth['points'][-256:-1]):
+            for point,correct in zip(actual['points'],truth['points'][-512:-1]):
                 for field in ('macd','signal','histogram'):self.assertAlmostEqual(point[field],correct[field],delta=0.00001)
         for actual,truth in zip(value['formingModels'],expected):
             for field in ('macd','signal','histogram'):self.assertAlmostEqual(actual['points'][0][field],truth['points'][-1][field],delta=0.00001)
@@ -142,10 +160,10 @@ class LiveChartsCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value['chartMacdStatus'],'ok')
         self.assertEqual(value['models'],original)
         for model,partial,expected in zip(value['chartModels'],value['formingModels'],truth):
-            self.assertEqual(len(model['points']),255)
+            self.assertEqual(len(model['points']),511)
             self.assertEqual(len(partial['points']),1)
             self.assertEqual(model['points'][-96:],original[truth.index(expected)]['points'])
-            for point,correct in zip(model['points']+partial['points'],expected['points'][-256:]):
+            for point,correct in zip(model['points']+partial['points'],expected['points'][-512:]):
                 for field in ('macd','signal','histogram'):
                     self.assertAlmostEqual(point[field],correct[field],delta=0.00001)
 
@@ -207,8 +225,11 @@ class LiveChartApiCase(unittest.TestCase):
         self.app.indicators.chart.assert_not_called()
         self.assertEqual(self.request('/v2/dashboard',query)[0],200)
         self.app.indicators.chart.assert_awaited_once_with(self.main,live=True)
+        self.app.indicators.chart.reset_mock()
+        self.assertEqual(self.request('/v2/dashboard',LEGACY_LIVE_CHART_QUERY.decode())[0],200)
+        self.app.indicators.chart.assert_awaited_once_with(self.main,live=True,history=256)
         self.assertEqual(self.request('/v2/dashboard','view=chart')[0],200)
         self.assertEqual(self.prices.acquisitions,0)
         self.assertEqual(self.app.balances.tasks,{})
-        for bad in ('view=chart&history=256','view=chart&history=257&live=1',query+'&mode=real',query+'&live=1'):
+        for bad in ('view=chart&history=512','view=chart&history=257&live=1',query+'&mode=real',query+'&live=1'):
             self.assertEqual(self.request('/v2/dashboard',bad)[0],400)

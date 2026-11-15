@@ -65,7 +65,7 @@ fun validatePriceCandles(value: MacdSnapshot) {
         require(value.candleSampledAt == null)
         return
     }
-    require(value.candles.size == (if (value.chartWindow == 256) 255 else 96) && value.candleStatus in setOf("ok", "stale") &&
+    require(value.candles.size == (if (value.chartWindow > 96) value.chartWindow - 1 else 96) && value.candleStatus in setOf("ok", "stale") &&
         value.candleSampledAt != null && value.candleSampledAt in 1L..value.generatedAt)
     value.candles.forEachIndexed { index, candle ->
         require(candle.timestamp > 0 && candle.timestamp % MACD_INTERVAL == 0L &&
@@ -128,7 +128,8 @@ class MacdSession(private val scope: CoroutineScope,
                                     candles = saved.candles, candleSampledAt = saved.candleSampledAt, candleStatus = "stale",
                                     chartWindow = saved.chartWindow, formingCandle = null, chartModels = saved.chartModels,
                                     formingModels = emptyList(), chartMacdStatus = if (saved.chartModels.isNotEmpty()) "stale" else saved.chartMacdStatus)
-                                if (merged.chartWindow == 256 && merged.chartModels.isEmpty() && saved.chartModels.isNotEmpty())
+                                if (merged.chartWindow > 96 && merged.chartWindow == saved.chartWindow &&
+                                    merged.chartModels.isEmpty() && saved.chartModels.isNotEmpty())
                                     merged = merged.copy(chartModels=saved.chartModels, formingModels=emptyList(), chartMacdStatus="stale")
                             }
                             val changed = retained?.models != merged.models || retained?.status != merged.status || retained?.source != merged.source ||
@@ -144,7 +145,7 @@ class MacdSession(private val scope: CoroutineScope,
                     } else if (retained == null) { online = value; onValue(value) }
                     if (value.status == "loading") onRefreshing()
                     if (value.status == "failed") onError("MACD source unavailable · retrying. Saved indicators shown when available.")
-                    pause(if (value.status == "loading" || value.candleStatus == "loading") 2_000 else if (value.chartWindow == 256) 5_000 else 30_000)
+                    pause(if (value.status == "loading" || value.candleStatus == "loading") 2_000 else if (value.chartWindow > 96) 5_000 else 30_000)
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { onError("MACD data unavailable. Refresh to retry."); pause(30_000) }
             }

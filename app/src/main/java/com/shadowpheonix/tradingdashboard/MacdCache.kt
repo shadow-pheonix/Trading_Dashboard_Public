@@ -16,6 +16,7 @@ interface MacdCache {
     suspend fun save(connection: Connection, value: MacdSnapshot)
     suspend fun forget(id: String)
 }
+private const val MAX_SAVED_MACD_BYTES = 1024 * 1024
 @Serializable
 private data class SavedMacd(val scope: String, val value: MacdSnapshot)
 
@@ -28,7 +29,7 @@ class MacdCacheStore(private val directory: File, private val now: () -> Long = 
     override suspend fun load(connection: Connection): MacdSnapshot? = withContext(Dispatchers.IO) {
         try {
             val path = file(connection.id)
-            if (!path.isFile || path.length() !in 1L..262144L) return@withContext null
+            if (!path.isFile || path.length() !in 1L..MAX_SAVED_MACD_BYTES.toLong()) return@withContext null
             val saved = json.decodeFromString<SavedMacd>(path.readText())
             if (saved.scope != scope(connection)) return@withContext null
             validateMacd(saved.value)
@@ -41,7 +42,7 @@ class MacdCacheStore(private val directory: File, private val now: () -> Long = 
         directory.mkdirs()
         // An offline price/indicator chart must never restore an apparently active stop.
         val contents = json.encodeToString(SavedMacd(scope(connection), value.withoutTradeAnnotations().withoutLivePreview()))
-        require(contents.toByteArray().size <= 262144)
+        require(contents.toByteArray().size <= MAX_SAVED_MACD_BYTES)
         val temporary = File.createTempFile("macd-", ".tmp", directory)
         try {
             temporary.writeText(contents)

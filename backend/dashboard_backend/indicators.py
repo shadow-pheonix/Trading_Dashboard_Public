@@ -12,7 +12,10 @@ from .validation import InvalidData, integer, number
 INTERVAL = 900000
 HISTORY = 24999  # Bot's 25k spot buffer, excluding the open partial candle.
 DISPLAY = 96
-LIVE_CHART_QUERY = b'view=chart&history=256&live=1'
+LIVE_CHART_WINDOW = 512
+LIVE_CHART_QUERY = b'view=chart&history=512&live=1'
+LEGACY_LIVE_CHART_QUERY = b'view=chart&history=256&live=1'
+LIVE_CHART_QUERIES = (LIVE_CHART_QUERY, LEGACY_LIVE_CHART_QUERY)
 SPANS = (("M1", 300, 900, 300), ("M2", 450, 1350, 450), ("M3", 600, 1800, 600))
 
 
@@ -117,7 +120,9 @@ class Indicators:
         self.failed = False
         self.bot_charts = {}
 
-    async def chart(self, instance, live=False):
+    async def chart(self, instance, live=False, history=LIVE_CHART_WINDOW):
+        if live and history not in (256, LIVE_CHART_WINDOW):
+            raise InvalidData()
         value = await self.get(instance)
         series = self.live_candles if live else self.price_candles
         value.update(series.get())
@@ -125,6 +130,8 @@ class Indicators:
             if series.task is not None and not series.task.done():
                 await asyncio.shield(series.task)
                 value.update(series.get())
+            # Older APKs retain their exact window while sharing the larger OHLC cache.
+            value.update(chartWindow=history, candles=value['candles'][-(history - 1):])
             from .chart_indicators import extend_chart
             extend_chart(value)
         return chart_time(value, self.clock())

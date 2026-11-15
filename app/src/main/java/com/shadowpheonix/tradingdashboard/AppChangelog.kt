@@ -26,10 +26,14 @@ internal data class ChangelogChange(val category: ChangelogCategory, val descrip
 // Replace this list with the changes included in each release. The installed
 // package supplies the version; release workflow version numbers are dynamic.
 internal val appChangelog = listOf(
+    ChangelogChange(ChangelogCategory.NewFeatures,
+        "Use the dashboard in portrait or landscape on tablets and phones, with support for resizable windows."),
     ChangelogChange(ChangelogCategory.Improvements,
-        "Open the equity chart full screen in landscape, with synchronized equity/drawdown inspection and the dotted open-trade estimate."),
+        "Fullscreen strategy charts initially show 120–512 candles in landscape, depending on screen width. Portrait keeps 60 candles, and manual zoom and pan survive rotation."),
     ChangelogChange(ChangelogCategory.Improvements,
-        "Equity and drawdowns use each instance’s complete Edge CSV history, including seeded and live trades. Main’s history and open estimate use Wallet 1 only. The dotted open-trade estimate remains linked across equity and drawdown charts."),
+        "Retain 512 candles with matching MACD history across strategy charts, including the forming candle. Fullscreen zoom now spans 12–512 candles."),
+    ChangelogChange(ChangelogCategory.BugFixes,
+        "Closing fullscreen charts restores the previous orientation setting instead of locking the dashboard to portrait."),
 )
 
 @Composable

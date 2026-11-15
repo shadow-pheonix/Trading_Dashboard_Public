@@ -4,6 +4,44 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChartViewportTest {
+    @Test fun landscapeDefaultsUseAvailableWidthWhilePortraitKeepsSixtyCandles() {
+        for (width in listOf(0, 360, 800, 1280, 1920))
+            assertEquals(60.0, defaultChartCandleCount(width, landscape = false), 0.0)
+        assertEquals(120.0, defaultChartCandleCount(800, landscape = true), 0.0)
+        assertEquals(193.0, defaultChartCandleCount(1280, landscape = true), 0.0)
+        assertEquals(300.0, defaultChartCandleCount(1920, landscape = true), 0.0)
+        assertEquals(120.0, defaultChartCandleCount(0, landscape = true), 0.0)
+        assertEquals(512.0, defaultChartCandleCount(Int.MAX_VALUE, landscape = true), 0.0)
+    }
+
+    @Test fun untouchedWindowAdaptsOnRotationAndAsHistoryArrivesWithoutLosingLatest() {
+        val times = (0..255).map { 1800000000000L + it * MACD_INTERVAL }
+        val window = ChartWindow()
+        val portrait = defaultChartCandleCount(800, landscape = false)
+        val landscape = defaultChartCandleCount(1280, landscape = true)
+        assertEquals(ChartViewport.latest(256, 60.0), window.viewport(times, portrait))
+        assertEquals(ChartViewport.latest(256, 193.0), window.viewport(times, landscape))
+        assertEquals(ChartViewport.latest(20, 20.0), window.viewport(times.take(20), landscape))
+        assertEquals(ChartViewport.latest(256, 193.0), window.viewport(times, landscape))
+        assertEquals(ChartViewport.latest(256, 60.0), window.viewport(times, portrait))
+        assertEquals(ChartViewport.latest(256, 193.0), window.viewport(times.map { it + MACD_INTERVAL }, landscape))
+    }
+
+    @Test fun rotationPreservesManualPanAndZoomIncludingZoomedFollowingWindow() {
+        val times = (0..255).map { 1800000000000L + it * MACD_INTERVAL }
+        val panned = ChartWindow().moved(ChartViewport(100.25, 40.0), times)
+        val zoomed = ChartWindow().moved(ChartViewport.latest(256, 24.0), times, follow = true)
+        assertFalse(panned.automaticCount)
+        assertFalse(zoomed.automaticCount)
+        for (count in listOf(60.0, 120.0, 193.0, 256.0)) {
+            assertEquals(ChartViewport(100.25, 40.0), panned.viewport(times, count))
+            assertEquals(ChartViewport(99.25, 40.0), panned.viewport(times.map { it + MACD_INTERVAL }, count))
+            assertEquals(ChartViewport.latest(256, 24.0), zoomed.viewport(times, count))
+        }
+        assertTrue(ChartWindow().automaticCount)
+        assertEquals(ChartViewport.latest(256, 193.0), ChartWindow().viewport(times, 193.0))
+    }
+
     @Test fun initialWindowShowsLatestReadableCandlesAndFuturePanningIsAllowed() {
         assertEquals(ChartViewport(36.0, 60.0), ChartViewport.latest(96))
         assertEquals(ChartViewport(0.0, 96.0), ChartViewport(-500.0, 1000.0).bounded(96))
@@ -31,9 +69,9 @@ class ChartViewportTest {
     }
 
     @Test fun fullScreenZoomFitsAllRetainedSlotsAndKeepsShortHistoryAndZoomInBounds() {
-        for (total in listOf(0, 1, 4, 12, 96, 255, 256, 300)) {
+        for (total in listOf(0, 1, 4, 12, 96, 255, 256, 300, 511, 512, 1024)) {
             val available = total.coerceAtLeast(1).toDouble()
-            val maximum = minOf(256.0, available)
+            val maximum = minOf(512.0, available)
             val minimum = minOf(12.0, available)
             val initial = ChartViewport.latest(total)
             val button = initial.zoomControl(total, 1e-10)
@@ -47,14 +85,14 @@ class ChartViewportTest {
             assertTrue(button.transform(total, 1.0, -100.0, 0.5).first > available)
         }
         val start = 1800000000000L / MACD_INTERVAL * MACD_INTERVAL
-        val times = (0..255).map { start+it*MACD_INTERVAL }
-        val viewport = ChartViewport.latest(256).zoomControl(256, 1e-10)
+        val times = (0..511).map { start+it*MACD_INTERVAL }
+        val viewport = ChartViewport.latest(512).zoomControl(512, 1e-10)
         assertEquals(times, chartVisible(times, viewport))
-        assertEquals(0, viewport.indexAt(0.0, 256))
-        assertEquals(255, viewport.indexAt(1.0, 256))
+        assertEquals(0, viewport.indexAt(0.0, 512))
+        assertEquals(511, viewport.indexAt(1.0, 512))
         val window = ChartWindow().moved(viewport, times)
         assertEquals(viewport, window.viewport(times))
-        assertEquals(256.0, window.viewport(times.map { it+MACD_INTERVAL }).count, 0.0)
+        assertEquals(512.0, window.viewport(times.map { it+MACD_INTERVAL }).count, 0.0)
     }
 
     @Test fun futurePanLeavesActualBarsOnTheLeftAndBlankSpaceHasNoSelectableData() {
@@ -284,13 +322,13 @@ class ChartViewportTest {
         var price=initial
         var indicator=ChartScale(-1000.0,1000.0)
         val indicatorAuto=ChartRange(-500.0,500.0)
-        var viewport=ChartViewport.latest(256)
+        var viewport=ChartViewport.latest(512)
         repeat(40) {
-            viewport=viewport.transform(256,0.8,0.0,0.5)
+            viewport=viewport.transform(512,0.8,0.0,0.5)
             price=price.fromPlotGesture(auto,0.8,0.0)
             indicator=indicator.fromPlotGesture(indicatorAuto,0.8,0.0)
         }
-        assertEquals(256.0,viewport.count,0.0)
+        assertEquals(512.0,viewport.count,0.0)
         assertEquals(initial,price)
         assertEquals(ChartScale(-1000.0,1000.0),indicator)
         for (zoom in listOf(0.5,1.0,2.0)) {

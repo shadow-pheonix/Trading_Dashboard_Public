@@ -31,7 +31,14 @@ instance scope. `/healthz` never activates prices, files or balance queries.
 The optional `portfolioAvailable` capability is true only for the configured
 primary (`main`) instance. Its key may request `GET /v2/dashboard?view=portfolio`:
 this exact, parameter-free view returns current Home projections and balances
-for configured instances, with complete-or-null totals. Other keys receive 403
+for configured instances, with complete-or-null totals. An instance with a known,
+successful combined balance below $1,000 is omitted from this Portfolio response;
+all totals and the original-equity return use the remaining entries. Exactly
+$1,000 qualifies, and funding an instance again automatically includes it on the
+next refresh. Failed/missing balances stay unknown instead of being excluded.
+If every instance is below the threshold, the route returns 503 rather than a
+misleading return or an empty document unsupported by existing APKs. Individual
+instance dashboards and balances are unchanged. Other keys receive 403
 before any cross-instance reads or account queries. Revocation is checked again
 before returning the response. No history, chart, alert or trading endpoint gains
 cross-instance access. Collection is demand-only, with existing ten-second account

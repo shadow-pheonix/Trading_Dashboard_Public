@@ -2,7 +2,9 @@
 import asyncio
 
 from .files import complete_sum
-from .validation import encode
+from .validation import InvalidData, encode
+
+MIN_PORTFOLIO_INSTANCE_EQUITY = 1000.0
 
 
 async def collect_portfolio(config, files, balances, prices, clock):
@@ -30,6 +32,14 @@ async def collect_portfolio(config, files, balances, prices, clock):
                         dashboard=dashboard, balances=balance)
 
     entries = await asyncio.gather(*(collect(instance) for instance in config.instances))
+    # Keep the installed APK's aggregate invariants: every total uses the same
+    # funded entries. A failed/missing balance is unknown, not a withdrawal.
+    entries = [entry for entry in entries if not (
+        entry['balances'] is not None and entry['balances']['status'] == 'ok'
+        and entry['balances']['equity'] is not None
+        and entry['balances']['equity'] < MIN_PORTFOLIO_INSTANCE_EQUITY)]
+    if not entries:
+        raise InvalidData()  # No funded portfolio; never manufacture a zero-capital return.
     equity = complete_sum([entry['balances']['equity'] if entry['balances'] else None for entry in entries])
     original = complete_sum([entry['balances']['originalEquity'] if entry['balances'] else None for entry in entries])
     pnl = complete_sum([entry['dashboard']['metrics']['unrealizedPnl'] if entry['dashboard'] else None for entry in entries])
